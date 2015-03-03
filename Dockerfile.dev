@@ -1,0 +1,10 @@
+FROM gliderlabs/alpine:3.1
+ENTRYPOINT ["/bin/docker-resolver.sh"]
+
+ENV GOPATH /go
+RUN apk-install go git mercurial dnsmasq bash
+COPY . /go/src/github.com/mgood/docker-resolver
+COPY docker-resolver.sh /bin/docker-resolver.sh
+RUN cd /go/src/github.com/mgood/docker-resolver \
+	&& go get \
+	&& go build -ldflags "-X main.Version dev" -o /bin/docker-resolver
