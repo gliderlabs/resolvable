@@ -22,7 +22,7 @@ func TestStartupShutdown(t *testing.T) {
 	defer daemon.Close()
 
 	dns := &DebugResolver{make(chan string)}
-	go registerContainers(daemon.client, dns)
+	go registerContainers(daemon.Client, dns)
 
 	equals(t, "listen", <-dns.ch)
 
@@ -41,7 +41,7 @@ func TestAddContainerBeforeStarted(t *testing.T) {
 	ok(t, err)
 
 	dns := &DebugResolver{make(chan string)}
-	go registerContainers(daemon.client, dns)
+	go registerContainers(daemon.Client, dns)
 
 	equals(t, "add: "+containerId, <-dns.ch)
 	equals(t, "listen", <-dns.ch)
@@ -55,7 +55,7 @@ func TestAddRemoveWhileRunning(t *testing.T) {
 	defer daemon.Close()
 
 	dns := &DebugResolver{make(chan string)}
-	go registerContainers(daemon.client, dns)
+	go registerContainers(daemon.Client, dns)
 
 	equals(t, "listen", <-dns.ch)
 
@@ -64,7 +64,7 @@ func TestAddRemoveWhileRunning(t *testing.T) {
 
 	equals(t, "add: "+containerId, <-dns.ch)
 
-	ok(t, daemon.client.KillContainer(dockerapi.KillContainerOptions{
+	ok(t, daemon.Client.KillContainer(dockerapi.KillContainerOptions{
 		ID: containerId,
 	}))
 
@@ -79,7 +79,7 @@ func TestAddRemoveWhileRunning(t *testing.T) {
 ////////////////////////////////////////////////////////////////////////////////
 
 type DockerDaemon struct {
-	client          *dockerapi.Client
+	Client          *dockerapi.Client
 	rootClient      *dockerapi.Client
 	dindContainerId string
 }
@@ -136,7 +136,7 @@ func NewDaemon() (daemon *DockerDaemon, err error) {
 	}
 	defer func() {
 		// if there is an error, client will not be set, so clean up
-		if daemon.client == nil {
+		if daemon.Client == nil {
 			daemon.Close()
 		}
 	}()
@@ -188,7 +188,7 @@ func NewDaemon() (daemon *DockerDaemon, err error) {
 		return nil, err
 	}
 
-	daemon.client = client
+	daemon.Client = client
 	return
 }
 
@@ -202,7 +202,7 @@ func (d *DockerDaemon) RunSimple(cmd ...string) (string, error) {
 }
 
 func (d *DockerDaemon) Run(createOpts dockerapi.CreateContainerOptions, startConfig *dockerapi.HostConfig) (string, error) {
-	return runContainer(d.client, createOpts, startConfig)
+	return runContainer(d.Client, createOpts, startConfig)
 }
 
 func (d *DockerDaemon) Close() error {
