@@ -72,6 +72,136 @@ func TestAddRemoveWhileRunning(t *testing.T) {
 	assertNext(t, "remove: "+containerId, dns.ch, time.Second)
 }
 
+func TestAddUpstreamDefaultPort(t *testing.T) {
+	t.Parallel()
+
+	daemon, err := NewDaemon()
+	ok(t, err)
+	defer daemon.Close()
+
+	dns := &DebugResolver{make(chan string)}
+	go registerContainers(daemon.Client, dns)
+
+	assertNext(t, "listen", dns.ch, 10*time.Second)
+
+	containerId, err := daemon.Run(dockerapi.CreateContainerOptions{
+		Config: &dockerapi.Config{
+			Image: "gliderlabs/alpine",
+			Cmd:   []string{"sleep", "30"},
+			Env:   []string{"DNS_RESOLVER"},
+		},
+	}, nil)
+	ok(t, err)
+
+	container, err := daemon.Client.InspectContainer(containerId)
+	ok(t, err)
+
+	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	assertNext(t,
+		fmt.Sprintf("add upstream: %v %v %v", containerId, container.NetworkSettings.IPAddress, 53),
+		dns.ch, time.Second,
+	)
+
+	ok(t, daemon.Client.KillContainer(dockerapi.KillContainerOptions{
+		ID: containerId,
+	}))
+
+	assertNext(t, "remove: "+containerId, dns.ch, time.Second)
+	assertNext(t, "remove upstream: "+containerId, dns.ch, time.Second)
+}
+
+func TestAddUpstreamEmptyPort(t *testing.T) {
+	t.Parallel()
+
+	daemon, err := NewDaemon()
+	ok(t, err)
+	defer daemon.Close()
+
+	dns := &DebugResolver{make(chan string)}
+	go registerContainers(daemon.Client, dns)
+
+	assertNext(t, "listen", dns.ch, 10*time.Second)
+
+	containerId, err := daemon.Run(dockerapi.CreateContainerOptions{
+		Config: &dockerapi.Config{
+			Image: "gliderlabs/alpine",
+			Cmd:   []string{"sleep", "30"},
+			Env:   []string{"DNS_RESOLVER="},
+		},
+	}, nil)
+	ok(t, err)
+
+	container, err := daemon.Client.InspectContainer(containerId)
+	ok(t, err)
+
+	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	assertNext(t,
+		fmt.Sprintf("add upstream: %v %v %v", containerId, container.NetworkSettings.IPAddress, 53),
+		dns.ch, time.Second,
+	)
+}
+
+func TestAddUpstreamAlternatePort(t *testing.T) {
+	t.Parallel()
+
+	daemon, err := NewDaemon()
+	ok(t, err)
+	defer daemon.Close()
+
+	dns := &DebugResolver{make(chan string)}
+	go registerContainers(daemon.Client, dns)
+
+	assertNext(t, "listen", dns.ch, 10*time.Second)
+
+	containerId, err := daemon.Run(dockerapi.CreateContainerOptions{
+		Config: &dockerapi.Config{
+			Image: "gliderlabs/alpine",
+			Cmd:   []string{"sleep", "30"},
+			Env:   []string{"DNS_RESOLVER=5353"},
+		},
+	}, nil)
+	ok(t, err)
+
+	container, err := daemon.Client.InspectContainer(containerId)
+	ok(t, err)
+
+	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	assertNext(t,
+		fmt.Sprintf("add upstream: %v %v %v", containerId, container.NetworkSettings.IPAddress, 5353),
+		dns.ch, time.Second,
+	)
+}
+
+func TestAddUpstreamInvalidPort(t *testing.T) {
+	t.Parallel()
+
+	daemon, err := NewDaemon()
+	ok(t, err)
+	defer daemon.Close()
+
+	dns := &DebugResolver{make(chan string)}
+	go registerContainers(daemon.Client, dns)
+
+	assertNext(t, "listen", dns.ch, 10*time.Second)
+
+	containerId, err := daemon.Run(dockerapi.CreateContainerOptions{
+		Config: &dockerapi.Config{
+			Image: "gliderlabs/alpine",
+			Cmd:   []string{"sleep", "30"},
+			Env:   []string{"DNS_RESOLVER=invalid"},
+		},
+	}, nil)
+	ok(t, err)
+
+	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+
+	select {
+	case msg := <-dns.ch:
+		t.Fatalf("expected no more results, got: %v", msg)
+	default:
+	}
+}
+
 func assertNext(tb testing.TB, expected string, ch chan string, timeout time.Duration) {
 	select {
 	case actual := <-ch:
@@ -261,12 +391,21 @@ func (r *DebugResolver) RemoveHost(id string) error {
 	return nil
 }
 
+func (r *DebugResolver) AddUpstream(id string, addr net.IP, port int) error {
+	r.ch <- fmt.Sprintf("add upstream: %v %v %v", id, addr, port)
+	return nil
+}
+
+func (r *DebugResolver) RemoveUpstream(id string) error {
+	r.ch <- fmt.Sprintf("remove upstream: %v", id)
+	return nil
+}
+
 func (r *DebugResolver) Listen() error {
 	r.ch <- "listen"
 	return nil
 }
 
-func (r *DebugResolver) Close() error {
+func (r *DebugResolver) Close() {
 	r.ch <- "close"
-	return nil
 }

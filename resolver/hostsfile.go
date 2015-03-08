@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -13,31 +14,49 @@ type HostsEntry struct {
 	Names   []string
 }
 
-func (c *HostsEntry) ToHostsString() string {
-	return strings.Join(append([]string{c.Address.String()}, c.Names...), "\t")
+func NewHostsEntry(addr net.IP, name string, aliases ...string) *HostsEntry {
+	names := append([]string{name}, aliases...)
+	return &HostsEntry{Names: names, Address: addr}
 }
 
-type Hosts struct {
+func (h *HostsEntry) String() string {
+	return strings.Join(append([]string{h.Address.String()}, h.Names...), "\t")
+}
+
+type ServersEntry struct {
+	Address net.IP
+	Port    int
+}
+
+func NewServersEntry(addr net.IP, port int) *ServersEntry {
+	return &ServersEntry{addr, port}
+}
+
+func (s *ServersEntry) String() string {
+	return fmt.Sprintf("server=%v#%d", s.Address, s.Port)
+}
+
+type EntriesFile struct {
 	sync.Mutex
-	path  string
-	hosts map[string]*HostsEntry
+	path    string
+	entries map[string]fmt.Stringer
 }
 
-func NewHosts(path string) *Hosts {
-	h := &Hosts{path: path, hosts: make(map[string]*HostsEntry)}
+func NewEntriesFile(path string) *EntriesFile {
+	h := &EntriesFile{path: path, entries: make(map[string]fmt.Stringer)}
 	h.write()
 	return h
 }
 
-func (h *Hosts) write() error {
+func (h *EntriesFile) write() error {
 	f, err := os.Create(h.path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	for _, entry := range h.hosts {
-		_, err := f.WriteString(entry.ToHostsString() + "\n")
+	for _, entry := range h.entries {
+		_, err := f.WriteString(entry.String() + "\n")
 		if err != nil {
 			return err
 		}
@@ -46,24 +65,22 @@ func (h *Hosts) write() error {
 	return nil
 }
 
-func (h *Hosts) Add(id string, addr net.IP, name string, aliases ...string) error {
+func (h *EntriesFile) Add(id string, entry fmt.Stringer) error {
 	h.Lock()
 	defer h.Unlock()
 
-	names := append([]string{name}, aliases...)
+	h.entries[id] = entry
 
-	h.hosts[id] = &HostsEntry{Names: names, Address: addr}
-
-	log.Println("added", id, "with value:", h.hosts[id].ToHostsString())
+	log.Println("added", id, "with value:", h.entries[id])
 
 	return h.write()
 }
 
-func (h *Hosts) Remove(id string) error {
+func (h *EntriesFile) Remove(id string) error {
 	h.Lock()
 	defer h.Unlock()
 
-	delete(h.hosts, id)
+	delete(h.entries, id)
 
 	log.Println("removed", id)
 

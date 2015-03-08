@@ -8,6 +8,8 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/mgood/docker-resolver/resolver"
 
@@ -92,7 +94,32 @@ func registerContainers(docker *dockerapi.Client, dns resolver.Resolver) error {
 			return err
 		}
 		addr := net.ParseIP(container.NetworkSettings.IPAddress)
-		return dns.AddHost(containerId, addr, container.Config.Hostname, container.Name[1:])
+
+		err = dns.AddHost(containerId, addr, container.Config.Hostname, container.Name[1:])
+		if err != nil {
+			return err
+		}
+
+		for _, env := range container.Config.Env {
+			kv := strings.SplitN(env, "=", 2)
+			if kv[0] != "DNS_RESOLVER" {
+				continue
+			}
+			port := 53
+			if len(kv) > 1 && kv[1] != "" {
+				port, err = strconv.Atoi(kv[1])
+				if err != nil {
+					log.Println("skipping invalid DNS port:", kv[1])
+					continue
+				}
+			}
+			err = dns.AddUpstream(containerId, addr, port)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}
 
 	containers, err := docker.ListContainers(dockerapi.ListContainersOptions{})
@@ -115,7 +142,10 @@ func registerContainers(docker *dockerapi.Client, dns resolver.Resolver) error {
 		case "start":
 			go addContainer(msg.ID)
 		case "die":
-			go dns.RemoveHost(msg.ID)
+			go func() {
+				dns.RemoveHost(msg.ID)
+				dns.RemoveUpstream(msg.ID)
+			}()
 		}
 	}
 
@@ -135,7 +165,8 @@ func main() {
 	// assert(insertLine(resolveConfEntry, resolveConf))
 	// defer removeLine(resolveConfEntry, resolveConf)
 
-	dnsmasq := resolver.NewDnsmasqResolver()
+	dnsmasq, err := resolver.NewDnsmasqResolver()
+	assert(err)
 	assert(registerContainers(docker, dnsmasq))
 
 	log.Fatal("docker-resolver: docker event loop closed") // todo: reconnect?
