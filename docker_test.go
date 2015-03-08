@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/cenkalti/backoff"
 	dockerapi "github.com/fsouza/go-dockerclient"
@@ -24,10 +25,10 @@ func TestStartupShutdown(t *testing.T) {
 	dns := &DebugResolver{make(chan string)}
 	go registerContainers(daemon.Client, dns)
 
-	equals(t, "listen", <-dns.ch)
+	assertNext(t, "listen", dns.ch, 10*time.Second)
 
 	ok(t, daemon.Close())
-	equals(t, "close", <-dns.ch)
+	assertNext(t, "close", dns.ch, 20*time.Second)
 }
 
 func TestAddContainerBeforeStarted(t *testing.T) {
@@ -43,8 +44,8 @@ func TestAddContainerBeforeStarted(t *testing.T) {
 	dns := &DebugResolver{make(chan string)}
 	go registerContainers(daemon.Client, dns)
 
-	equals(t, "add: "+containerId, <-dns.ch)
-	equals(t, "listen", <-dns.ch)
+	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	assertNext(t, "listen", dns.ch, 10*time.Second)
 }
 
 func TestAddRemoveWhileRunning(t *testing.T) {
@@ -57,18 +58,29 @@ func TestAddRemoveWhileRunning(t *testing.T) {
 	dns := &DebugResolver{make(chan string)}
 	go registerContainers(daemon.Client, dns)
 
-	equals(t, "listen", <-dns.ch)
+	assertNext(t, "listen", dns.ch, 10*time.Second)
 
 	containerId, err := daemon.RunSimple("sleep", "30")
 	ok(t, err)
 
-	equals(t, "add: "+containerId, <-dns.ch)
+	assertNext(t, "add: "+containerId, dns.ch, time.Second)
 
 	ok(t, daemon.Client.KillContainer(dockerapi.KillContainerOptions{
 		ID: containerId,
 	}))
 
-	equals(t, "remove: "+containerId, <-dns.ch)
+	assertNext(t, "remove: "+containerId, dns.ch, time.Second)
+}
+
+func assertNext(tb testing.TB, expected string, ch chan string, timeout time.Duration) {
+	select {
+	case actual := <-ch:
+		equals(tb, expected, actual)
+	case <-time.After(timeout):
+		_, file, line, _ := runtime.Caller(1)
+		fmt.Printf("\033[31m%s:%d: timed out after %v, exp: %s\033[39m\n\n", filepath.Base(file), line, timeout, expected)
+		tb.FailNow()
+	}
 }
 
 // TODO add a test for when the container doesn't start up right,
