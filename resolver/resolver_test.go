@@ -12,6 +12,87 @@ import (
 	"github.com/tonnerre/golang-dns"
 )
 
+func TestDnsmasqResolver(t *testing.T) {
+	hostname := "foobar"
+	address := net.ParseIP("1.2.3.4")
+
+	resolver, err := NewDnsmasqResolver()
+	ok(t, err)
+
+	resolver.AddHost(address.String(), address, hostname)
+
+	ok(t, startResolver(resolver, 5388))
+	defer resolver.Close()
+
+	assertResolvesTo(t, []net.IP{address}, hostname, resolver.Port)
+
+	resolver.RemoveHost(address.String())
+	assertDoesNotResolve(t, hostname, resolver.Port)
+}
+
+func TestUpstreamResolver(t *testing.T) {
+	hostname := "foobar"
+	address := net.ParseIP("1.2.3.4")
+
+	resolver, err := runResolver(5388)
+	ok(t, err)
+	defer resolver.Close()
+
+	upstream, err := runResolver(5389)
+	ok(t, err)
+	defer upstream.Close()
+	upstream.AddHost("foobar", address, hostname)
+
+	assertDoesNotResolve(t, hostname, resolver.Port)
+
+	resolver.AddUpstream("upstream", net.ParseIP("127.0.0.1"), upstream.Port)
+
+	assertResolvesTo(t, []net.IP{address}, hostname, resolver.Port)
+}
+
+func TestUpstreamResolverDomains(t *testing.T) {
+	shouldResolve := net.ParseIP("1.0.0.1")
+	shouldAlsoResolve := net.ParseIP("2.0.0.1")
+	shouldNotResolve := net.ParseIP("3.0.0.1")
+
+	resolver, err := runResolver(5388)
+	ok(t, err)
+	defer resolver.Close()
+
+	upstream, err := runResolver(5389)
+	ok(t, err)
+	defer upstream.Close()
+	upstream.AddHost("should-resolve", shouldResolve, "domain.should-resolve")
+	upstream.AddHost("should-also-resolve", shouldAlsoResolve, "domain.should-also-resolve")
+	upstream.AddHost("should-not-resolve", shouldNotResolve, "domain.should-not-resolve")
+
+	resolver.AddUpstream("upstream", net.ParseIP("127.0.0.1"), upstream.Port, "should-resolve", "should-also-resolve")
+
+	assertDoesNotResolve(t, "domain.should-not-resolve", resolver.Port)
+	assertResolvesTo(t, []net.IP{shouldResolve}, "domain.should-resolve", resolver.Port)
+	assertResolvesTo(t, []net.IP{shouldAlsoResolve}, "domain.should-also-resolve", resolver.Port)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+func startResolver(resolver *dnsmasqResolver, port int) error {
+	resolver.Port = port
+	if err := resolver.Listen(); err != nil {
+		return err
+	}
+	// FIXME should wait just until the dnsmasq server indicates that it's started
+	time.Sleep(time.Second)
+	return nil
+}
+
+func runResolver(port int) (*dnsmasqResolver, error) {
+	resolver, err := NewDnsmasqResolver()
+	if err == nil {
+		err = startResolver(resolver, port)
+	}
+	return resolver, err
+}
+
 func lookupHost(host, server string) ([]net.IP, error) {
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(host), dns.TypeA)
@@ -34,6 +115,16 @@ func lookupHost(host, server string) ([]net.IP, error) {
 	return addrs, nil
 }
 
+func assertResolvesTo(tb testing.TB, expected []net.IP, hostname string, dnsPort int) {
+	addrs, err := lookupHost(hostname, fmt.Sprintf("127.0.0.1:%d", dnsPort))
+	ok(tb, err)
+	equals(tb, expected, addrs)
+}
+
+func assertDoesNotResolve(tb testing.TB, hostname string, dnsPort int) {
+	assertResolvesTo(tb, []net.IP{}, hostname, dnsPort)
+}
+
 // ok fails the test if an err is not nil.
 func ok(tb testing.TB, err error) {
 	if err != nil {
@@ -50,69 +141,4 @@ func equals(tb testing.TB, exp, act interface{}) {
 		fmt.Printf("\033[31m%s:%d:\n\n\texp: %#v\n\n\tgot: %#v\033[39m\n\n", filepath.Base(file), line, exp, act)
 		tb.FailNow()
 	}
-}
-
-func TestDnsmasqResolver(t *testing.T) {
-	resolver, err := NewDnsmasqResolver()
-	ok(t, err)
-	resolver.Port = 5388
-
-	hostname := "foobar"
-	address := net.ParseIP("1.2.3.4")
-
-	resolver.AddHost(address.String(), address, hostname)
-
-	ok(t, resolver.Listen())
-	defer resolver.Close()
-
-	// TODO should wait until the dnsmasq server indicates that it's started
-	time.Sleep(time.Second)
-
-	addrs, err := lookupHost(hostname, "127.0.0.1:5388")
-	ok(t, err)
-	equals(t, []net.IP{address}, addrs)
-
-	resolver.RemoveHost(address.String())
-
-	addrs, err = lookupHost(hostname, "127.0.0.1:5388")
-	ok(t, err)
-	equals(t, []net.IP{}, addrs)
-}
-
-func TestUpstreamResolver(t *testing.T) {
-	resolver, err := NewDnsmasqResolver()
-	ok(t, err)
-	resolver.Port = 5388
-
-	hostname := "foobar"
-	address := net.ParseIP("1.2.3.4")
-
-	ok(t, resolver.Listen())
-	defer resolver.Close()
-
-	// TODO should wait until the dnsmasq server indicates that it's started
-	time.Sleep(time.Second)
-
-	// host should be missing initially
-	addrs, err := lookupHost(hostname, "127.0.0.1:5388")
-	ok(t, err)
-	equals(t, []net.IP{}, addrs)
-
-	upstream, err := NewDnsmasqResolver()
-	ok(t, err)
-	upstream.Port = 5389
-
-	ok(t, upstream.Listen())
-	defer upstream.Close()
-	time.Sleep(time.Second)
-
-	upstream.AddHost("foobar", address, hostname)
-
-	resolver.AddUpstream("foobar", net.ParseIP("127.0.0.1"), upstream.Port)
-
-	// should be able to resolve now
-	addrs, err = lookupHost(hostname, "127.0.0.1:5388")
-	ok(t, err)
-	equals(t, []net.IP{address}, addrs)
-
 }

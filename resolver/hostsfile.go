@@ -26,24 +26,29 @@ func (h *HostsEntry) String() string {
 type ServersEntry struct {
 	Address net.IP
 	Port    int
+	Domain  string
 }
 
-func NewServersEntry(addr net.IP, port int) *ServersEntry {
-	return &ServersEntry{addr, port}
+func NewServersEntry(addr net.IP, port int, domain string) *ServersEntry {
+	return &ServersEntry{addr, port, domain}
 }
 
 func (s *ServersEntry) String() string {
-	return fmt.Sprintf("server=%v#%d", s.Address, s.Port)
+	if s.Domain == "" {
+		return fmt.Sprintf("server=%v#%d", s.Address, s.Port)
+	} else {
+		return fmt.Sprintf("server=/%v/%v#%d", s.Domain, s.Address, s.Port)
+	}
 }
 
 type EntriesFile struct {
 	sync.Mutex
 	path    string
-	entries map[string]fmt.Stringer
+	entries map[string][]fmt.Stringer
 }
 
 func NewEntriesFile(path string) *EntriesFile {
-	h := &EntriesFile{path: path, entries: make(map[string]fmt.Stringer)}
+	h := &EntriesFile{path: path, entries: make(map[string][]fmt.Stringer)}
 	h.write()
 	return h
 }
@@ -55,21 +60,23 @@ func (h *EntriesFile) write() error {
 	}
 	defer f.Close()
 
-	for _, entry := range h.entries {
-		_, err := f.WriteString(entry.String() + "\n")
-		if err != nil {
-			return err
+	for _, entries := range h.entries {
+		for _, entry := range entries {
+			_, err := f.WriteString(entry.String() + "\n")
+			if err != nil {
+				return err
+			}
 		}
 	}
 
 	return nil
 }
 
-func (h *EntriesFile) Add(id string, entry fmt.Stringer) error {
+func (h *EntriesFile) Add(id string, entries ...fmt.Stringer) error {
 	h.Lock()
 	defer h.Unlock()
 
-	h.entries[id] = entry
+	h.entries[id] = entries
 
 	log.Println("added", id, "with value:", h.entries[id])
 

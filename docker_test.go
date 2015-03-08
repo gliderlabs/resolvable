@@ -98,7 +98,7 @@ func TestAddUpstreamDefaultPort(t *testing.T) {
 
 	assertNext(t, "add: "+containerId, dns.ch, time.Second)
 	assertNext(t,
-		fmt.Sprintf("add upstream: %v %v %v", containerId, container.NetworkSettings.IPAddress, 53),
+		fmt.Sprintf("add upstream: %v %v %v []", containerId, container.NetworkSettings.IPAddress, 53),
 		dns.ch, time.Second,
 	)
 
@@ -136,7 +136,7 @@ func TestAddUpstreamEmptyPort(t *testing.T) {
 
 	assertNext(t, "add: "+containerId, dns.ch, time.Second)
 	assertNext(t,
-		fmt.Sprintf("add upstream: %v %v %v", containerId, container.NetworkSettings.IPAddress, 53),
+		fmt.Sprintf("add upstream: %v %v %v []", containerId, container.NetworkSettings.IPAddress, 53),
 		dns.ch, time.Second,
 	)
 }
@@ -167,7 +167,7 @@ func TestAddUpstreamAlternatePort(t *testing.T) {
 
 	assertNext(t, "add: "+containerId, dns.ch, time.Second)
 	assertNext(t,
-		fmt.Sprintf("add upstream: %v %v %v", containerId, container.NetworkSettings.IPAddress, 5353),
+		fmt.Sprintf("add upstream: %v %v %v []", containerId, container.NetworkSettings.IPAddress, 5353),
 		dns.ch, time.Second,
 	)
 }
@@ -200,6 +200,40 @@ func TestAddUpstreamInvalidPort(t *testing.T) {
 		t.Fatalf("expected no more results, got: %v", msg)
 	default:
 	}
+}
+
+func TestAddUpstreamDomains(t *testing.T) {
+	t.Parallel()
+
+	daemon, err := NewDaemon()
+	ok(t, err)
+	defer daemon.Close()
+
+	dns := &DebugResolver{make(chan string)}
+	go registerContainers(daemon.Client, dns)
+
+	assertNext(t, "listen", dns.ch, 10*time.Second)
+
+	containerId, err := daemon.Run(dockerapi.CreateContainerOptions{
+		Config: &dockerapi.Config{
+			Image: "gliderlabs/alpine",
+			Cmd:   []string{"sleep", "30"},
+			Env: []string{
+				"DNS_RESOLVER=5353",
+				"DNS_RESOLVER_DOMAINS=domain,another.domain",
+			},
+		},
+	}, nil)
+	ok(t, err)
+
+	container, err := daemon.Client.InspectContainer(containerId)
+	ok(t, err)
+
+	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	assertNext(t,
+		fmt.Sprintf("add upstream: %v %v %v [domain another.domain]", containerId, container.NetworkSettings.IPAddress, 5353),
+		dns.ch, time.Second,
+	)
 }
 
 func assertNext(tb testing.TB, expected string, ch chan string, timeout time.Duration) {
@@ -391,8 +425,8 @@ func (r *DebugResolver) RemoveHost(id string) error {
 	return nil
 }
 
-func (r *DebugResolver) AddUpstream(id string, addr net.IP, port int) error {
-	r.ch <- fmt.Sprintf("add upstream: %v %v %v", id, addr, port)
+func (r *DebugResolver) AddUpstream(id string, addr net.IP, port int, domains ...string) error {
+	r.ch <- fmt.Sprintf("add upstream: %v %v %v %v", id, addr, port, domains)
 	return nil
 }
 

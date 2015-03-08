@@ -82,6 +82,24 @@ func ipAddress() (string, error) {
 	return "", errors.New("no addresses found")
 }
 
+func parseContainerEnv(containerEnv []string, prefix string) map[string]string {
+	parsed := make(map[string]string)
+
+	for _, env := range containerEnv {
+		if !strings.HasPrefix(env, prefix) {
+			continue
+		}
+		keyVal := strings.SplitN(env, "=", 2)
+		if len(keyVal) > 1 {
+			parsed[keyVal[0]] = keyVal[1]
+		} else {
+			parsed[keyVal[0]] = ""
+		}
+	}
+
+	return parsed
+}
+
 func registerContainers(docker *dockerapi.Client, dns resolver.Resolver) error {
 	events := make(chan *dockerapi.APIEvents)
 	if err := docker.AddEventListener(events); err != nil {
@@ -100,20 +118,18 @@ func registerContainers(docker *dockerapi.Client, dns resolver.Resolver) error {
 			return err
 		}
 
-		for _, env := range container.Config.Env {
-			kv := strings.SplitN(env, "=", 2)
-			if kv[0] != "DNS_RESOLVER" {
-				continue
-			}
+		env := parseContainerEnv(container.Config.Env, "DNS_RESOLVER")
+		if portString, ok := env["DNS_RESOLVER"]; ok {
 			port := 53
-			if len(kv) > 1 && kv[1] != "" {
-				port, err = strconv.Atoi(kv[1])
+			if portString != "" {
+				port, err = strconv.Atoi(portString)
 				if err != nil {
-					log.Println("skipping invalid DNS port:", kv[1])
-					continue
+					return errors.New("invalid DNS_RESOLVER port: " + portString)
 				}
 			}
-			err = dns.AddUpstream(containerId, addr, port)
+
+			domains := strings.Split(env["DNS_RESOLVER_DOMAINS"], ",")
+			err = dns.AddUpstream(containerId, addr, port, domains...)
 			if err != nil {
 				return err
 			}

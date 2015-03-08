@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"fmt"
 	"io/ioutil"
 	"net"
 	"os"
@@ -14,7 +15,7 @@ type Resolver interface {
 	AddHost(id string, addr net.IP, name string, aliases ...string) error
 	RemoveHost(id string) error
 
-	AddUpstream(id string, addr net.IP, port int) error
+	AddUpstream(id string, addr net.IP, port int, domain ...string) error
 	RemoveUpstream(id string) error
 
 	Listen() error
@@ -53,8 +54,17 @@ func (r *dnsmasqResolver) RemoveHost(id string) error {
 	return r.reload()
 }
 
-func (r *dnsmasqResolver) AddUpstream(id string, addr net.IP, port int) error {
-	if err := r.upstream.Add(id, NewServersEntry(addr, port)); err != nil {
+func (r *dnsmasqResolver) AddUpstream(id string, addr net.IP, port int, domains ...string) error {
+	if len(domains) == 0 {
+		domains = []string{""}
+	}
+
+	entries := make([]fmt.Stringer, len(domains))
+	for i, domain := range domains {
+		entries[i] = NewServersEntry(addr, port, domain)
+	}
+
+	if err := r.upstream.Add(id, entries...); err != nil {
 		return err
 	}
 	return r.reload()
