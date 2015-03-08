@@ -15,6 +15,8 @@ import (
 )
 
 func TestStartupShutdown(t *testing.T) {
+	t.Parallel()
+
 	daemon, err := NewDaemon()
 	ok(t, err)
 	defer daemon.Close()
@@ -29,6 +31,8 @@ func TestStartupShutdown(t *testing.T) {
 }
 
 func TestAddContainerBeforeStarted(t *testing.T) {
+	t.Parallel()
+
 	daemon, err := NewDaemon()
 	ok(t, err)
 	defer daemon.Close()
@@ -44,6 +48,8 @@ func TestAddContainerBeforeStarted(t *testing.T) {
 }
 
 func TestAddRemoveWhileRunning(t *testing.T) {
+	t.Parallel()
+
 	daemon, err := NewDaemon()
 	ok(t, err)
 	defer daemon.Close()
