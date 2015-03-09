@@ -139,6 +139,14 @@ func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, contain
 			}
 		}
 
+		if bridge := container.NetworkSettings.Bridge; bridge != "" {
+			bridgeAddr := net.ParseIP(container.NetworkSettings.Gateway)
+			err = dns.AddHost("bridge:"+bridge, bridgeAddr, bridge)
+			if err != nil {
+				return err
+			}
+		}
+
 		return nil
 	}
 

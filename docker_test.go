@@ -45,6 +45,7 @@ func TestAddContainerBeforeStarted(t *testing.T) {
 	go registerContainers(daemon.Client, dns, "docker")
 
 	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	assertNext(t, "add: bridge:docker0", dns.ch, time.Second)
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 }
 
@@ -64,6 +65,7 @@ func TestAddRemoveWhileRunning(t *testing.T) {
 	ok(t, err)
 
 	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	assertNext(t, "add: bridge:docker0", dns.ch, time.Second)
 
 	ok(t, daemon.Client.KillContainer(dockerapi.KillContainerOptions{
 		ID: containerId,
@@ -101,6 +103,7 @@ func TestAddUpstreamDefaultPort(t *testing.T) {
 		fmt.Sprintf("add upstream: %v %v %v []", containerId, container.NetworkSettings.IPAddress, 53),
 		dns.ch, time.Second,
 	)
+	assertNext(t, "add: bridge:docker0", dns.ch, time.Second)
 
 	ok(t, daemon.Client.KillContainer(dockerapi.KillContainerOptions{
 		ID: containerId,
@@ -194,6 +197,8 @@ func TestAddUpstreamInvalidPort(t *testing.T) {
 	ok(t, err)
 
 	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	// XXX should it still attempt to add the bridge if there is another error?
+	// assertNext(t, "add: bridge:docker0", dns.ch, time.Second)
 
 	select {
 	case msg := <-dns.ch:
