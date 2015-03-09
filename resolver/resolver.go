@@ -1,12 +1,14 @@
 package resolver
 
 import (
+	"fmt"
 	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 )
 
@@ -22,6 +24,7 @@ type Resolver interface {
 }
 
 type dnsmasqResolver struct {
+	sync.Mutex
 	Port        int
 	LocalDomain string
 	configDir   string
@@ -41,34 +44,45 @@ func NewDnsmasqResolver() (*dnsmasqResolver, error) {
 }
 
 func (r *dnsmasqResolver) AddHost(id string, addr net.IP, name string, aliases ...string) error {
-	if err := r.hosts.Add(id, NewHostsEntry(addr, name, aliases...)); err != nil {
-		return err
-	}
-	return r.reload()
+	return r.addTo(r.hosts, id, NewHostsEntry(addr, name, aliases...))
 }
 
 func (r *dnsmasqResolver) RemoveHost(id string) error {
-	if err := r.hosts.Remove(id); err != nil {
-		return err
-	}
-	return r.reload()
+	return r.removeFrom(r.hosts, id)
 }
 
 func (r *dnsmasqResolver) AddUpstream(id string, addr net.IP, port int, domains ...string) error {
-	if err := r.upstream.Add(id, NewServersEntry(addr, port, domains...)); err != nil {
-		return err
-	}
-	return r.reload()
+	return r.addTo(r.upstream, id, NewServersEntry(addr, port, domains...))
 }
 
 func (r *dnsmasqResolver) RemoveUpstream(id string) error {
-	if err := r.upstream.Remove(id); err != nil {
-		return err
-	}
-	return r.reload()
+	return r.removeFrom(r.upstream, id)
 }
 
-func (r *dnsmasqResolver) reload() error {
+func (r *dnsmasqResolver) addTo(entries *EntriesFile, id string, entry fmt.Stringer) error {
+	r.Lock()
+	defer r.Unlock()
+
+	if !entries.Add(id, entry) {
+		return nil
+	}
+	return r.reload(entries)
+}
+
+func (r *dnsmasqResolver) removeFrom(entries *EntriesFile, id string) error {
+	r.Lock()
+	defer r.Unlock()
+
+	if !entries.Remove(id) {
+		return nil
+	}
+	return r.reload(entries)
+}
+
+func (r *dnsmasqResolver) reload(entries *EntriesFile) error {
+	if err := entries.Write(); err != nil {
+		return err
+	}
 	if r.dnsmasq == nil {
 		return nil
 	}

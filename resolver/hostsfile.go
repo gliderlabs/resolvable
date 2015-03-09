@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 )
 
 type HostsEntry struct {
@@ -42,18 +41,17 @@ func (s *ServersEntry) String() string {
 }
 
 type EntriesFile struct {
-	sync.Mutex
 	path    string
-	entries map[string]fmt.Stringer
+	entries map[string]string
 }
 
 func NewEntriesFile(path string) *EntriesFile {
-	h := &EntriesFile{path: path, entries: make(map[string]fmt.Stringer)}
-	h.write()
+	h := &EntriesFile{path: path, entries: make(map[string]string)}
+	h.Write()
 	return h
 }
 
-func (h *EntriesFile) write() error {
+func (h *EntriesFile) Write() error {
 	f, err := os.Create(h.path)
 	if err != nil {
 		return err
@@ -61,7 +59,7 @@ func (h *EntriesFile) write() error {
 	defer f.Close()
 
 	for _, entry := range h.entries {
-		_, err := f.WriteString(entry.String() + "\n")
+		_, err := f.WriteString(entry + "\n")
 		if err != nil {
 			return err
 		}
@@ -70,24 +68,25 @@ func (h *EntriesFile) write() error {
 	return nil
 }
 
-func (h *EntriesFile) Add(id string, entry fmt.Stringer) error {
-	h.Lock()
-	defer h.Unlock()
+func (h *EntriesFile) Add(id string, entry fmt.Stringer) bool {
+	value := entry.String()
+	if h.entries[id] == value {
+		return false
+	}
 
-	h.entries[id] = entry
+	h.entries[id] = value
+	log.Println("added", id, "with value:", value)
 
-	log.Println("added", id, "with value:", h.entries[id])
-
-	return h.write()
+	return true
 }
 
-func (h *EntriesFile) Remove(id string) error {
-	h.Lock()
-	defer h.Unlock()
+func (h *EntriesFile) Remove(id string) bool {
+	if _, ok := h.entries[id]; !ok {
+		return false
+	}
 
 	delete(h.entries, id)
-
 	log.Println("removed", id)
 
-	return h.write()
+	return true
 }
