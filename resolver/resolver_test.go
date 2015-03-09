@@ -73,6 +73,31 @@ func TestUpstreamResolverDomains(t *testing.T) {
 	assertResolvesTo(t, []net.IP{shouldAlsoResolve}, "domain.should-also-resolve", resolver.Port)
 }
 
+// queries within the "LocalDomain" should not be forwarded to upstream servers
+func TestLocalDomain(t *testing.T) {
+	shouldResolve := net.ParseIP("1.0.0.1")
+	shouldNotResolve := net.ParseIP("3.0.0.1")
+
+	resolver, err := NewDnsmasqResolver()
+	ok(t, err)
+
+	resolver.LocalDomain = "docker"
+
+	ok(t, startResolver(resolver, 5388))
+	defer resolver.Close()
+
+	upstream, err := runResolver(5389)
+	ok(t, err)
+	defer upstream.Close()
+
+	resolver.AddUpstream("upstream", net.ParseIP("127.0.0.1"), upstream.Port)
+	resolver.AddHost("should-resolve", shouldResolve, "should-resolve.docker")
+	upstream.AddHost("should-not-resolve", shouldNotResolve, "should-not-resolve.docker")
+
+	assertDoesNotResolve(t, "should-not-resolve.docker", resolver.Port)
+	assertResolvesTo(t, []net.IP{shouldResolve}, "should-resolve.docker", resolver.Port)
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 func startResolver(resolver *dnsmasqResolver, port int) error {

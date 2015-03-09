@@ -100,10 +100,14 @@ func parseContainerEnv(containerEnv []string, prefix string) map[string]string {
 	return parsed
 }
 
-func registerContainers(docker *dockerapi.Client, dns resolver.Resolver) error {
+func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, containerDomain string) error {
 	events := make(chan *dockerapi.APIEvents)
 	if err := docker.AddEventListener(events); err != nil {
 		return err
+	}
+
+	if !strings.HasPrefix(containerDomain, ".") {
+		containerDomain = "." + containerDomain
 	}
 
 	addContainer := func(containerId string) error {
@@ -113,7 +117,7 @@ func registerContainers(docker *dockerapi.Client, dns resolver.Resolver) error {
 		}
 		addr := net.ParseIP(container.NetworkSettings.IPAddress)
 
-		err = dns.AddHost(containerId, addr, container.Config.Hostname, container.Name[1:])
+		err = dns.AddHost(containerId, addr, container.Config.Hostname, container.Name[1:]+containerDomain)
 		if err != nil {
 			return err
 		}
@@ -183,7 +187,8 @@ func main() {
 
 	dnsmasq, err := resolver.NewDnsmasqResolver()
 	assert(err)
-	assert(registerContainers(docker, dnsmasq))
+	dnsmasq.LocalDomain = "docker"
+	assert(registerContainers(docker, dnsmasq, dnsmasq.LocalDomain))
 
 	log.Fatal("docker-resolver: docker event loop closed") // todo: reconnect?
 }

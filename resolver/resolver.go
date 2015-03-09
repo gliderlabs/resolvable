@@ -22,11 +22,12 @@ type Resolver interface {
 }
 
 type dnsmasqResolver struct {
-	Port      int
-	configDir string
-	hosts     *EntriesFile
-	upstream  *EntriesFile
-	dnsmasq   *exec.Cmd
+	Port        int
+	LocalDomain string
+	configDir   string
+	hosts       *EntriesFile
+	upstream    *EntriesFile
+	dnsmasq     *exec.Cmd
 }
 
 func NewDnsmasqResolver() (*dnsmasqResolver, error) {
@@ -75,13 +76,17 @@ func (r *dnsmasqResolver) reload() error {
 }
 
 func (r *dnsmasqResolver) Listen() error {
-	r.dnsmasq = exec.Command("dnsmasq",
+	args := []string{
 		"--port", strconv.Itoa(r.Port),
 		"--no-daemon", "--no-hosts",
 		"--addn-hosts", r.hosts.path,
 		"--servers-file", r.upstream.path,
 		"--no-resolv",
-	)
+	}
+	if r.LocalDomain != "" {
+		args = append(args, "--local", "/"+r.LocalDomain+"/")
+	}
+	r.dnsmasq = exec.Command("dnsmasq", args...)
 	r.dnsmasq.Stdout = os.Stdout
 	r.dnsmasq.Stderr = os.Stderr
 
