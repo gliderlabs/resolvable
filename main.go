@@ -3,13 +3,16 @@ package main // import "github.com/mgood/docker-resolver"
 // dnsmasq --no-daemon --no-hosts --addn-hosts our-hosts --resolv-file our-resolv
 import (
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/mgood/docker-resolver/resolver"
 
@@ -21,12 +24,6 @@ func getopt(name, def string) string {
 		return env
 	}
 	return def
-}
-
-func assert(err error) {
-	if err != nil {
-		log.Fatal("docker-resolver: ", err)
-	}
 }
 
 func insertLine(line, path string) error {
@@ -100,7 +97,7 @@ func parseContainerEnv(containerEnv []string, prefix string) map[string]string {
 	return parsed
 }
 
-func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, containerDomain string, quit chan struct{}) error {
+func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, containerDomain string) error {
 	events := make(chan *dockerapi.APIEvents)
 	if err := docker.AddEventListener(events); err != nil {
 		return err
@@ -165,54 +162,75 @@ func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, contain
 	}
 	defer dns.Close()
 
-	for {
-		select {
-		case msg, ok := <-events:
-			if !ok {
-				return errors.New("docker event loop closed")
-			}
-			switch msg.Status {
-			case "start":
-				go addContainer(msg.ID)
-			case "die":
-				go func() {
-					dns.RemoveHost(msg.ID)
-					dns.RemoveUpstream(msg.ID)
-				}()
-			}
-		case <-quit:
-			return nil
+	for msg := range events {
+		switch msg.Status {
+		case "start":
+			go addContainer(msg.ID)
+		case "die":
+			go func() {
+				dns.RemoveHost(msg.ID)
+				dns.RemoveUpstream(msg.ID)
+			}()
 		}
 	}
+
+	return errors.New("docker event loop closed")
 }
 
-func main() {
+func run() error {
+	// set up the signal handler first to ensure cleanup is handled if a signal is
+	// caught while initializing
+	exitReason := make(chan error)
+	go func() {
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+		sig := <-c
+		exitReason <- errors.New(fmt.Sprint("terminated by signal ", sig))
+	}()
+
 	docker, err := dockerapi.NewClient(getopt("DOCKER_HOST", "unix:///tmp/docker.sock"))
-	assert(err)
+	if err != nil {
+		return err
+	}
 
-	// address, err := ipAddress()
-	// assert(err)
-	// log.Println("got local address:", address)
+	address, err := ipAddress()
+	if err != nil {
+		return err
+	}
+	log.Println("got local address:", address)
 
-	// resolveConf := getopt("RESOLV_CONF", "/tmp/resolv.conf")
-	// resolveConfEntry := "nameserver " + address
-	// assert(insertLine(resolveConfEntry, resolveConf))
-	// defer removeLine(resolveConfEntry, resolveConf)
-
-	quit := make(chan struct{})
+	resolveConf := getopt("RESOLV_CONF", "/tmp/resolv.conf")
+	resolveConfEntry := "nameserver " + address
+	if err = insertLine(resolveConfEntry, resolveConf); err != nil {
+		return err
+	}
+	defer func() {
+		log.Println("cleaning up", resolveConf)
+		removeLine(resolveConfEntry, resolveConf)
+	}()
 
 	dnsmasq, err := resolver.NewDnsmasqResolver()
-	assert(err)
+	if err != nil {
+		return err
+	}
+	defer dnsmasq.Close()
+
 	dnsmasq.LocalDomain = "docker"
 
 	go func() {
-		// TODO capture error here?
 		dnsmasq.Wait()
-		close(quit)
+		exitReason <- errors.New("dnsmasq process exited")
+	}()
+	go func() {
+		exitReason <- registerContainers(docker, dnsmasq, dnsmasq.LocalDomain)
 	}()
 
-	// FIXME should also shutdown dnsmasq if docker event loop is closed
-	assert(registerContainers(docker, dnsmasq, dnsmasq.LocalDomain, quit))
+	return <-exitReason
+}
 
-	log.Fatal("docker-resolver: dnsmasq process exited") // todo: reconnect?
+func main() {
+	err := run()
+	if err != nil {
+		log.Fatal("docker-resolver: ", err)
+	}
 }

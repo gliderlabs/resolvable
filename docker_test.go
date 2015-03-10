@@ -413,7 +413,7 @@ type DebugResolver struct {
 
 func RunDebugResolver(client *dockerapi.Client) *DebugResolver {
 	dns := &DebugResolver{make(chan string)}
-	go registerContainers(client, dns, "docker", make(chan struct{}))
+	go registerContainers(client, dns, "docker")
 	return dns
 }
 

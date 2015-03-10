@@ -1,8 +1,7 @@
 FROM gliderlabs/alpine:3.1
-ENTRYPOINT ["/bin/docker-resolver.sh"]
+ENTRYPOINT ["/bin/docker-resolver"]
 
 COPY . /go/src/github.com/mgood/docker-resolver
-COPY docker-resolver.sh /bin/docker-resolver.sh
 RUN apk-install -t dnsmasq build-deps \
 	&& cd /go/src/github.com/mgood/docker-resolver \
 	&& export GOPATH=/go \
