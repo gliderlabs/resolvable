@@ -19,6 +19,10 @@ import (
 	dockerapi "github.com/fsouza/go-dockerclient"
 )
 
+const RESOLVCONF_COMMENT = "# added by docker-resolver"
+
+var ResolvConfPattern *regexp.Regexp = regexp.MustCompile("(?m:^.*" + regexp.QuoteMeta(RESOLVCONF_COMMENT) + ")(?:$|\n)")
+
 func getopt(name, def string) string {
 	if env := os.Getenv(name); env != "" {
 		return env
@@ -26,7 +30,7 @@ func getopt(name, def string) string {
 	return def
 }
 
-func insertLine(line, path string) error {
+func updateResolvConf(insert, path string) error {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return err
@@ -38,28 +42,26 @@ func insertLine(line, path string) error {
 		return err
 	}
 
-	if _, err = f.Seek(0, 0); err != nil {
+	orig = ResolvConfPattern.ReplaceAllLiteral(orig, []byte{})
+
+	if _, err = f.Seek(0, os.SEEK_SET); err != nil {
 		return err
 	}
 
-	if _, err = f.WriteString(line + "\n"); err != nil {
+	if _, err = f.WriteString(insert); err != nil {
 		return err
 	}
 
-	_, err = f.Write(orig)
-	return err
-}
+	if _, err = f.Write(orig); err != nil {
+		return err
+	}
 
-func removeLine(text, path string) error {
-	patt := regexp.MustCompile("(?m:^" + regexp.QuoteMeta(text) + ")(?:$|\n)")
-
-	orig, err := ioutil.ReadFile(path)
+	// contents may have been shortened, so truncate where we are
+	pos, err := f.Seek(0, os.SEEK_CUR)
 	if err != nil {
 		return err
 	}
-
-	err = ioutil.WriteFile(path, patt.ReplaceAllLiteral(orig, []byte{}), 0666)
-	return err
+	return f.Truncate(pos)
 }
 
 func ipAddress() (string, error) {
@@ -200,13 +202,13 @@ func run() error {
 	log.Println("got local address:", address)
 
 	resolveConf := getopt("RESOLV_CONF", "/tmp/resolv.conf")
-	resolveConfEntry := "nameserver " + address
-	if err = insertLine(resolveConfEntry, resolveConf); err != nil {
+	resolveConfEntry := fmt.Sprintf("nameserver %s %s\n", address, RESOLVCONF_COMMENT)
+	if err = updateResolvConf(resolveConfEntry, resolveConf); err != nil {
 		return err
 	}
 	defer func() {
 		log.Println("cleaning up", resolveConf)
-		removeLine(resolveConfEntry, resolveConf)
+		updateResolvConf("", resolveConf)
 	}()
 
 	dnsmasq, err := resolver.NewDnsmasqResolver()

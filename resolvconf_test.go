@@ -27,7 +27,7 @@ func assertFileContains(t *testing.T, path, expected string) {
 }
 
 func checkInsertLine(t *testing.T, path, line, orig string) {
-	err := insertLine(line, path)
+	err := updateResolvConf(line+"\n", path)
 	if err != nil {
 		t.Fatal("could not insert line:", err)
 	}
@@ -68,13 +68,39 @@ func TestInsertLineExistingFile(t *testing.T) {
 	checkInsertLine(t, path, "hello world", orig)
 }
 
-func checkRemoveLine(t *testing.T, path, line, expected string) {
-	err := removeLine(line, path)
+func TestInsertLineExistingFileWithComments(t *testing.T) {
+	dir := tempdir(t)
+	defer os.RemoveAll(dir)
+
+	path := filepath.Join(dir, "test.txt")
+
+	expected := "existing text\nanother line\n"
+	orig := expected + "comment line " + RESOLVCONF_COMMENT
+
+	err := ioutil.WriteFile(path, []byte(orig), 0666)
 	if err != nil {
-		t.Fatal("could not insert line:", err)
+		t.Fatal("could not create file:", err)
+	}
+	checkInsertLine(t, path, "hello world", expected)
+}
+
+func checkRemoveLine(t *testing.T, path, expected string) {
+	err := updateResolvConf("", path)
+	if err != nil {
+		t.Fatal("could not remove line:", err)
 	}
 
 	assertFileContains(t, path, expected)
+}
+
+func TestRemoveLineMissingFile(t *testing.T) {
+	dir := tempdir(t)
+	defer os.RemoveAll(dir)
+
+	err := updateResolvConf("", filepath.Join(dir, "test.txt"))
+	if err != nil {
+		t.Fatal("could not remove line:", err)
+	}
 }
 
 func TestRemoveLineBeginning(t *testing.T) {
@@ -82,7 +108,7 @@ func TestRemoveLineBeginning(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	path := filepath.Join(dir, "test.txt")
-	line := "hello world"
+	line := "hello world " + RESOLVCONF_COMMENT
 	rest := "some more\ntext after\n"
 
 	err := ioutil.WriteFile(path, []byte(line+"\n"+rest), 0666)
@@ -90,7 +116,7 @@ func TestRemoveLineBeginning(t *testing.T) {
 		t.Fatal("could not create file:", err)
 	}
 
-	checkRemoveLine(t, path, line, rest)
+	checkRemoveLine(t, path, rest)
 }
 
 func TestRemoveLineMiddle(t *testing.T) {
@@ -98,7 +124,7 @@ func TestRemoveLineMiddle(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	path := filepath.Join(dir, "test.txt")
-	line := "hello world"
+	line := "hello world " + RESOLVCONF_COMMENT
 	pre := "some\nbefore\n"
 	post := "more\nafter\n"
 
@@ -107,7 +133,7 @@ func TestRemoveLineMiddle(t *testing.T) {
 		t.Fatal("could not create file:", err)
 	}
 
-	checkRemoveLine(t, path, line, pre+post)
+	checkRemoveLine(t, path, pre+post)
 }
 
 func TestRemoveLineEnd(t *testing.T) {
@@ -115,7 +141,7 @@ func TestRemoveLineEnd(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	path := filepath.Join(dir, "test.txt")
-	line := "hello world"
+	line := "hello world " + RESOLVCONF_COMMENT
 	pre := "some\nbefore\n"
 
 	err := ioutil.WriteFile(path, []byte(pre+line), 0666)
@@ -123,7 +149,7 @@ func TestRemoveLineEnd(t *testing.T) {
 		t.Fatal("could not create file:", err)
 	}
 
-	checkRemoveLine(t, path, line, pre)
+	checkRemoveLine(t, path, pre)
 }
 
 func TestRemoveLineMulti(t *testing.T) {
@@ -131,12 +157,13 @@ func TestRemoveLineMulti(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	path := filepath.Join(dir, "test.txt")
-	line := "hello world"
 	pre := "some\nbefore\n"
+	line1 := "hello world " + RESOLVCONF_COMMENT
 	mid := "and\nbetween\n"
+	line2 := "something else " + RESOLVCONF_COMMENT
 	post := "more\nafter\n"
 
-	origText := pre + line + "\n" + mid + line + "\n" + post
+	origText := pre + line1 + "\n" + mid + line2 + "\n" + post
 	expected := pre + mid + post
 
 	err := ioutil.WriteFile(path, []byte(origText), 0666)
@@ -144,5 +171,5 @@ func TestRemoveLineMulti(t *testing.T) {
 		t.Fatal("could not create file:", err)
 	}
 
-	checkRemoveLine(t, path, line, expected)
+	checkRemoveLine(t, path, expected)
 }
