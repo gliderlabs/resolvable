@@ -22,7 +22,7 @@ var Version string
 
 const RESOLVCONF_COMMENT = "# added by resolve"
 
-var ResolvConfPattern *regexp.Regexp = regexp.MustCompile("(?m:^.*" + regexp.QuoteMeta(RESOLVCONF_COMMENT) + ")(?:$|\n)")
+var resolvConfPattern = regexp.MustCompile("(?m:^.*" + regexp.QuoteMeta(RESOLVCONF_COMMENT) + ")(?:$|\n)")
 
 func getopt(name, def string) string {
 	if env := os.Getenv(name); env != "" {
@@ -43,7 +43,7 @@ func updateResolvConf(insert, path string) error {
 		return err
 	}
 
-	orig = ResolvConfPattern.ReplaceAllLiteral(orig, []byte{})
+	orig = resolvConfPattern.ReplaceAllLiteral(orig, []byte{})
 
 	if _, err = f.Seek(0, os.SEEK_SET); err != nil {
 		return err
