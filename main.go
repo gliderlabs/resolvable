@@ -1,6 +1,5 @@
 package main // import "github.com/mgood/docker-resolver"
 
-// dnsmasq --no-daemon --no-hosts --addn-hosts our-hosts --resolv-file our-resolv
 import (
 	"errors"
 	"fmt"
