@@ -86,7 +86,7 @@ func TestAddUpstreamDefaultPort(t *testing.T) {
 		Config: &dockerapi.Config{
 			Image: "gliderlabs/alpine",
 			Cmd:   []string{"sleep", "30"},
-			Env:   []string{"DNS_RESOLVER"},
+			Env:   []string{"DNS_RESOLVES=domain"},
 		},
 	}, nil)
 	ok(t, err)
@@ -96,7 +96,7 @@ func TestAddUpstreamDefaultPort(t *testing.T) {
 
 	assertNext(t, "add: "+containerId, dns.ch, time.Second)
 	assertNext(t,
-		fmt.Sprintf("add upstream: %v %v %v []", containerId, container.NetworkSettings.IPAddress, 53),
+		fmt.Sprintf("add upstream: %v %v %v [domain]", containerId, container.NetworkSettings.IPAddress, 53),
 		dns.ch, time.Second,
 	)
 	assertNext(t, "add: bridge:docker0", dns.ch, time.Second)
@@ -107,6 +107,34 @@ func TestAddUpstreamDefaultPort(t *testing.T) {
 
 	assertNext(t, "remove: "+containerId, dns.ch, time.Second)
 	assertNext(t, "remove upstream: "+containerId, dns.ch, time.Second)
+}
+
+func TestAddUpstreamEmptyDomains(t *testing.T) {
+	t.Parallel()
+
+	daemon, err := NewDaemon()
+	ok(t, err)
+	defer daemon.Close()
+
+	dns := RunDebugResolver(daemon.Client)
+
+	assertNext(t, "listen", dns.ch, 10*time.Second)
+
+	containerId, err := daemon.Run(dockerapi.CreateContainerOptions{
+		Config: &dockerapi.Config{
+			Image: "gliderlabs/alpine",
+			Cmd:   []string{"sleep", "30"},
+			Env:   []string{"DNS_RESOLVES="},
+		},
+	}, nil)
+	ok(t, err)
+
+	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	select {
+	case msg := <-dns.ch:
+		t.Fatalf("expected no more results, got: %v", msg)
+	case <-time.After(time.Second):
+	}
 }
 
 func TestAddUpstreamEmptyPort(t *testing.T) {
@@ -124,7 +152,10 @@ func TestAddUpstreamEmptyPort(t *testing.T) {
 		Config: &dockerapi.Config{
 			Image: "gliderlabs/alpine",
 			Cmd:   []string{"sleep", "30"},
-			Env:   []string{"DNS_RESOLVER="},
+			Env: []string{
+				"DNS_RESOLVES=domain",
+				"DNS_PORT=",
+			},
 		},
 	}, nil)
 	ok(t, err)
@@ -134,7 +165,7 @@ func TestAddUpstreamEmptyPort(t *testing.T) {
 
 	assertNext(t, "add: "+containerId, dns.ch, time.Second)
 	assertNext(t,
-		fmt.Sprintf("add upstream: %v %v %v []", containerId, container.NetworkSettings.IPAddress, 53),
+		fmt.Sprintf("add upstream: %v %v %v [domain]", containerId, container.NetworkSettings.IPAddress, 53),
 		dns.ch, time.Second,
 	)
 }
@@ -154,7 +185,10 @@ func TestAddUpstreamAlternatePort(t *testing.T) {
 		Config: &dockerapi.Config{
 			Image: "gliderlabs/alpine",
 			Cmd:   []string{"sleep", "30"},
-			Env:   []string{"DNS_RESOLVER=5353"},
+			Env: []string{
+				"DNS_RESOLVES=domain",
+				"DNS_PORT=5353",
+			},
 		},
 	}, nil)
 	ok(t, err)
@@ -164,7 +198,7 @@ func TestAddUpstreamAlternatePort(t *testing.T) {
 
 	assertNext(t, "add: "+containerId, dns.ch, time.Second)
 	assertNext(t,
-		fmt.Sprintf("add upstream: %v %v %v []", containerId, container.NetworkSettings.IPAddress, 5353),
+		fmt.Sprintf("add upstream: %v %v %v [domain]", containerId, container.NetworkSettings.IPAddress, 5353),
 		dns.ch, time.Second,
 	)
 }
@@ -184,7 +218,10 @@ func TestAddUpstreamInvalidPort(t *testing.T) {
 		Config: &dockerapi.Config{
 			Image: "gliderlabs/alpine",
 			Cmd:   []string{"sleep", "30"},
-			Env:   []string{"DNS_RESOLVER=invalid"},
+			Env: []string{
+				"DNS_RESOLVES=domain",
+				"DNS_PORT=invalid",
+			},
 		},
 	}, nil)
 	ok(t, err)
@@ -216,8 +253,8 @@ func TestAddUpstreamDomains(t *testing.T) {
 			Image: "gliderlabs/alpine",
 			Cmd:   []string{"sleep", "30"},
 			Env: []string{
-				"DNS_RESOLVER=5353",
-				"DNS_RESOLVER_DOMAINS=domain,another.domain",
+				"DNS_RESOLVES=domain,another.domain",
+				"DNS_PORT=5353",
 			},
 		},
 	}, nil)

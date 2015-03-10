@@ -120,17 +120,21 @@ func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, contain
 			return err
 		}
 
-		env := parseContainerEnv(container.Config.Env, "DNS_RESOLVER")
-		if portString, ok := env["DNS_RESOLVER"]; ok {
+		env := parseContainerEnv(container.Config.Env, "DNS_")
+		if dnsDomains, ok := env["DNS_RESOLVES"]; ok {
+			if dnsDomains == "" {
+				return errors.New("empty DNS_RESOLVES, should contain a comma-separated list with at least one domain")
+			}
+
 			port := 53
-			if portString != "" {
+			if portString := env["DNS_PORT"]; portString != "" {
 				port, err = strconv.Atoi(portString)
 				if err != nil {
-					return errors.New("invalid DNS_RESOLVER port: " + portString)
+					return errors.New("invalid DNS_PORT \"" + portString + "\", should contain a number")
 				}
 			}
 
-			domains := strings.Split(env["DNS_RESOLVER_DOMAINS"], ",")
+			domains := strings.Split(dnsDomains, ",")
 			err = dns.AddUpstream(containerId, addr, port, domains...)
 			if err != nil {
 				return err
@@ -166,7 +170,11 @@ func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, contain
 	for msg := range events {
 		switch msg.Status {
 		case "start":
-			go addContainer(msg.ID)
+			go func() {
+				if err := addContainer(msg.ID); err != nil {
+					log.Printf("error adding container %s: %s\n", msg.ID[:12], err)
+				}
+			}()
 		case "die":
 			go func() {
 				dns.RemoveHost(msg.ID)
