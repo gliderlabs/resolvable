@@ -333,7 +333,7 @@ func clientFromEnv() (client *dockerapi.Client, endpointUrl *url.URL, err error)
 	return
 }
 
-func NewDaemon() (daemon *DockerDaemon, err error) {
+func NewDaemon() (*DockerDaemon, error) {
 	rootClient, endpoint, err := clientFromEnv()
 	if err != nil {
 		return nil, err
@@ -341,7 +341,7 @@ func NewDaemon() (daemon *DockerDaemon, err error) {
 
 	// TODO share /var/lib/docker across the docker runs, but where should the volume be stored?
 
-	daemon = &DockerDaemon{
+	daemon := &DockerDaemon{
 		rootClient: rootClient,
 	}
 	defer func() {
@@ -399,7 +399,7 @@ func NewDaemon() (daemon *DockerDaemon, err error) {
 	}
 
 	daemon.Client = client
-	return
+	return daemon, err
 }
 
 func (d *DockerDaemon) RunSimple(cmd ...string) (string, error) {
