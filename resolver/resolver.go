@@ -31,6 +31,7 @@ type dnsmasqResolver struct {
 	hosts       *EntriesFile
 	upstream    *EntriesFile
 	dnsmasq     *exec.Cmd
+	started     chan struct{}
 }
 
 func NewDnsmasqResolver() (*dnsmasqResolver, error) {
@@ -40,7 +41,13 @@ func NewDnsmasqResolver() (*dnsmasqResolver, error) {
 	}
 	hosts := NewEntriesFile(filepath.Join(configDir, "hosts"))
 	upstream := NewEntriesFile(filepath.Join(configDir, "upstream"))
-	return &dnsmasqResolver{configDir: configDir, hosts: hosts, upstream: upstream, Port: 53}, nil
+	return &dnsmasqResolver{
+		Port:      53,
+		configDir: configDir,
+		hosts:     hosts,
+		upstream:  upstream,
+		started:   make(chan struct{}),
+	}, nil
 }
 
 func (r *dnsmasqResolver) AddHost(id string, addr net.IP, name string, aliases ...string) error {
@@ -105,10 +112,13 @@ func (r *dnsmasqResolver) Listen() error {
 	r.dnsmasq.Stderr = os.Stderr
 
 	err := r.dnsmasq.Start()
-	if err != nil {
-		return err
-	}
-	return nil
+	close(r.started)
+	return err
+}
+
+func (r *dnsmasqResolver) Wait() error {
+	<-r.started
+	return r.dnsmasq.Wait()
 }
 
 func (r *dnsmasqResolver) Close() {

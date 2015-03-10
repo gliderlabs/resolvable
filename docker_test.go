@@ -22,8 +22,7 @@ func TestStartupShutdown(t *testing.T) {
 	ok(t, err)
 	defer daemon.Close()
 
-	dns := &DebugResolver{make(chan string)}
-	go registerContainers(daemon.Client, dns, "docker")
+	dns := RunDebugResolver(daemon.Client)
 
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 
@@ -41,8 +40,7 @@ func TestAddContainerBeforeStarted(t *testing.T) {
 	containerId, err := daemon.RunSimple("sleep", "30")
 	ok(t, err)
 
-	dns := &DebugResolver{make(chan string)}
-	go registerContainers(daemon.Client, dns, "docker")
+	dns := RunDebugResolver(daemon.Client)
 
 	assertNext(t, "add: "+containerId, dns.ch, time.Second)
 	assertNext(t, "add: bridge:docker0", dns.ch, time.Second)
@@ -56,8 +54,7 @@ func TestAddRemoveWhileRunning(t *testing.T) {
 	ok(t, err)
 	defer daemon.Close()
 
-	dns := &DebugResolver{make(chan string)}
-	go registerContainers(daemon.Client, dns, "docker")
+	dns := RunDebugResolver(daemon.Client)
 
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 
@@ -81,8 +78,7 @@ func TestAddUpstreamDefaultPort(t *testing.T) {
 	ok(t, err)
 	defer daemon.Close()
 
-	dns := &DebugResolver{make(chan string)}
-	go registerContainers(daemon.Client, dns, "docker")
+	dns := RunDebugResolver(daemon.Client)
 
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 
@@ -120,8 +116,7 @@ func TestAddUpstreamEmptyPort(t *testing.T) {
 	ok(t, err)
 	defer daemon.Close()
 
-	dns := &DebugResolver{make(chan string)}
-	go registerContainers(daemon.Client, dns, "docker")
+	dns := RunDebugResolver(daemon.Client)
 
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 
@@ -151,8 +146,7 @@ func TestAddUpstreamAlternatePort(t *testing.T) {
 	ok(t, err)
 	defer daemon.Close()
 
-	dns := &DebugResolver{make(chan string)}
-	go registerContainers(daemon.Client, dns, "docker")
+	dns := RunDebugResolver(daemon.Client)
 
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 
@@ -182,8 +176,7 @@ func TestAddUpstreamInvalidPort(t *testing.T) {
 	ok(t, err)
 	defer daemon.Close()
 
-	dns := &DebugResolver{make(chan string)}
-	go registerContainers(daemon.Client, dns, "docker")
+	dns := RunDebugResolver(daemon.Client)
 
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 
@@ -214,8 +207,7 @@ func TestAddUpstreamDomains(t *testing.T) {
 	ok(t, err)
 	defer daemon.Close()
 
-	dns := &DebugResolver{make(chan string)}
-	go registerContainers(daemon.Client, dns, "docker")
+	dns := RunDebugResolver(daemon.Client)
 
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 
@@ -417,6 +409,12 @@ func runContainer(client *dockerapi.Client, createOpts dockerapi.CreateContainer
 
 type DebugResolver struct {
 	ch chan string
+}
+
+func RunDebugResolver(client *dockerapi.Client) *DebugResolver {
+	dns := &DebugResolver{make(chan string)}
+	go registerContainers(client, dns, "docker", make(chan struct{}))
+	return dns
 }
 
 func (r *DebugResolver) AddHost(id string, addr net.IP, name string, aliases ...string) error {

@@ -25,7 +25,7 @@ func getopt(name, def string) string {
 
 func assert(err error) {
 	if err != nil {
-		log.Fatal("dns: ", err)
+		log.Fatal("docker-resolver: ", err)
 	}
 }
 
@@ -100,7 +100,7 @@ func parseContainerEnv(containerEnv []string, prefix string) map[string]string {
 	return parsed
 }
 
-func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, containerDomain string) error {
+func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, containerDomain string, quit chan struct{}) error {
 	events := make(chan *dockerapi.APIEvents)
 	if err := docker.AddEventListener(events); err != nil {
 		return err
@@ -165,19 +165,25 @@ func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, contain
 	}
 	defer dns.Close()
 
-	for msg := range events {
-		switch msg.Status {
-		case "start":
-			go addContainer(msg.ID)
-		case "die":
-			go func() {
-				dns.RemoveHost(msg.ID)
-				dns.RemoveUpstream(msg.ID)
-			}()
+	for {
+		select {
+		case msg, ok := <-events:
+			if !ok {
+				return errors.New("docker event loop closed")
+			}
+			switch msg.Status {
+			case "start":
+				go addContainer(msg.ID)
+			case "die":
+				go func() {
+					dns.RemoveHost(msg.ID)
+					dns.RemoveUpstream(msg.ID)
+				}()
+			}
+		case <-quit:
+			return nil
 		}
 	}
-
-	return nil
 }
 
 func main() {
@@ -193,10 +199,20 @@ func main() {
 	// assert(insertLine(resolveConfEntry, resolveConf))
 	// defer removeLine(resolveConfEntry, resolveConf)
 
+	quit := make(chan struct{})
+
 	dnsmasq, err := resolver.NewDnsmasqResolver()
 	assert(err)
 	dnsmasq.LocalDomain = "docker"
-	assert(registerContainers(docker, dnsmasq, dnsmasq.LocalDomain))
 
-	log.Fatal("docker-resolver: docker event loop closed") // todo: reconnect?
+	go func() {
+		// TODO capture error here?
+		dnsmasq.Wait()
+		close(quit)
+	}()
+
+	// FIXME should also shutdown dnsmasq if docker event loop is closed
+	assert(registerContainers(docker, dnsmasq, dnsmasq.LocalDomain, quit))
+
+	log.Fatal("docker-resolver: dnsmasq process exited") // todo: reconnect?
 }

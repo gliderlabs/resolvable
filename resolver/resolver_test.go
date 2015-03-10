@@ -98,6 +98,66 @@ func TestLocalDomain(t *testing.T) {
 	assertResolvesTo(t, []net.IP{shouldResolve}, "should-resolve.docker", resolver.Port)
 }
 
+func TestWait(t *testing.T) {
+	resolver, err := runResolver(5388)
+	ok(t, err)
+	defer resolver.Close()
+
+	done := make(chan struct{})
+	go func() {
+		resolver.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("wait should not return before process has exited")
+	case <-time.After(time.Second / 2):
+	}
+
+	resolver.Close()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second / 2):
+		t.Fatal("wait should return after process has exited")
+	}
+}
+
+func TestWaitBeforeListen(t *testing.T) {
+	resolver, err := NewDnsmasqResolver()
+	ok(t, err)
+	defer resolver.Close()
+
+	done := make(chan struct{})
+	go func() {
+		resolver.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("wait should not return before process has exited")
+	case <-time.After(time.Second / 2):
+	}
+
+	ok(t, startResolver(resolver, 5388))
+
+	select {
+	case <-done:
+		t.Fatal("wait should not return before process has exited")
+	case <-time.After(time.Second / 2):
+	}
+
+	resolver.Close()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second / 2):
+		t.Fatal("wait should return after process has exited")
+	}
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 func startResolver(resolver *dnsmasqResolver, port int) error {
