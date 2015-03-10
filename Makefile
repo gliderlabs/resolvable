@@ -1,4 +1,4 @@
-NAME=docker-resolver
+NAME=resolve
 VERSION=$(shell cat VERSION)
 
 dev:

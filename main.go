@@ -1,4 +1,4 @@
-package main // import "github.com/mgood/docker-resolver"
+package main // import "github.com/mgood/resolve"
 
 import (
 	"errors"
@@ -13,12 +13,12 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/mgood/docker-resolver/resolver"
+	"github.com/mgood/resolve/resolver"
 
 	dockerapi "github.com/fsouza/go-dockerclient"
 )
 
-const RESOLVCONF_COMMENT = "# added by docker-resolver"
+const RESOLVCONF_COMMENT = "# added by resolve"
 
 var ResolvConfPattern *regexp.Regexp = regexp.MustCompile("(?m:^.*" + regexp.QuoteMeta(RESOLVCONF_COMMENT) + ")(?:$|\n)")
 
@@ -240,6 +240,6 @@ func run() error {
 func main() {
 	err := run()
 	if err != nil {
-		log.Fatal("docker-resolver: ", err)
+		log.Fatal("resolve: ", err)
 	}
 }
