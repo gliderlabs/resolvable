@@ -18,6 +18,8 @@ import (
 	dockerapi "github.com/fsouza/go-dockerclient"
 )
 
+var Version string
+
 const RESOLVCONF_COMMENT = "# added by resolve"
 
 var ResolvConfPattern *regexp.Regexp = regexp.MustCompile("(?m:^.*" + regexp.QuoteMeta(RESOLVCONF_COMMENT) + ")(?:$|\n)")
@@ -238,6 +240,12 @@ func run() error {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Println(Version)
+		os.Exit(0)
+	}
+	log.Printf("Starting resolve %s ...", Version)
+
 	err := run()
 	if err != nil {
 		log.Fatal("resolve: ", err)
