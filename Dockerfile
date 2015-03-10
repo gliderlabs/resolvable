@@ -1,8 +1,10 @@
 FROM gliderlabs/alpine:3.1
 ENTRYPOINT ["/bin/resolve"]
 
+RUN apk-install dnsmasq
+
 COPY . /go/src/github.com/mgood/resolve
-RUN apk-install -t dnsmasq build-deps \
+RUN apk-install -t build-deps go git mercurial \
 	&& cd /go/src/github.com/mgood/resolve \
 	&& export GOPATH=/go \
 	&& go get \
