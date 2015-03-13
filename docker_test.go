@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"log"
 	"net"
 	"net/url"
 	"os"
@@ -14,6 +16,49 @@ import (
 	"github.com/cenkalti/backoff"
 	dockerapi "github.com/fsouza/go-dockerclient"
 )
+
+var GliderlabsAlpineImage []byte
+
+func TestMain(m *testing.M) {
+	if err := setup(); err != nil {
+		log.Fatal(err)
+	}
+
+	os.Exit(m.Run())
+}
+
+func setup() error {
+	rootClient, _, err := clientFromEnv()
+	if err != nil {
+		return err
+	}
+
+	err = rootClient.PullImage(dockerapi.PullImageOptions{
+		Repository: "jpetazzo/dind",
+	}, dockerapi.AuthConfiguration{})
+	if err != nil {
+		return err
+	}
+
+	err = rootClient.PullImage(dockerapi.PullImageOptions{
+		Repository: "gliderlabs/alpine:latest",
+	}, dockerapi.AuthConfiguration{})
+	if err != nil {
+		return err
+	}
+
+	var buf bytes.Buffer
+	err = rootClient.ExportImage(dockerapi.ExportImageOptions{
+		Name:         "gliderlabs/alpine:latest",
+		OutputStream: &buf,
+	})
+	if err != nil {
+		return err
+	}
+	GliderlabsAlpineImage = buf.Bytes()
+
+	return nil
+}
 
 func TestStartupShutdown(t *testing.T) {
 	t.Parallel()
@@ -394,7 +439,20 @@ func NewDaemon() (*DockerDaemon, error) {
 		return nil, err
 	}
 
-	if err = backoff.Retry(client.Ping, backoff.NewExponentialBackOff()); err != nil {
+	b := backoff.NewExponentialBackOff()
+	// retry a bit faster than the defaults
+	b.InitialInterval = time.Second / 10
+	b.Multiplier = 1.1
+	b.RandomizationFactor = 0.2
+	// don't need to wait a full minute to timeout
+	b.MaxElapsedTime = 30 * time.Second
+
+	loadAlpine := func() error {
+		return client.LoadImage(dockerapi.LoadImageOptions{
+			InputStream: bytes.NewReader(GliderlabsAlpineImage),
+		})
+	}
+	if err = backoff.Retry(loadAlpine, b); err != nil {
 		return nil, err
 	}
 
@@ -427,13 +485,6 @@ func (d *DockerDaemon) Close() error {
 }
 
 func runContainer(client *dockerapi.Client, createOpts dockerapi.CreateContainerOptions, startConfig *dockerapi.HostConfig) (string, error) {
-	err := client.PullImage(dockerapi.PullImageOptions{
-		Repository: createOpts.Config.Image,
-	}, dockerapi.AuthConfiguration{})
-	if err != nil {
-		return "", err
-	}
-
 	container, err := client.CreateContainer(createOpts)
 	if err != nil {
 		return "", err
