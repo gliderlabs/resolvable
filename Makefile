@@ -14,6 +14,11 @@ build:
 	docker build -t $(NAME):$(VERSION) .
 	docker save $(NAME):$(VERSION) | gzip -9 > build/$(NAME)_$(VERSION).tgz
 
+test:
+	GOMAXPROCS=8 go test -v \
+		github.com/mgood/resolve \
+		github.com/mgood/resolve/resolver
+
 release:
 	rm -rf release && mkdir release
 	go get github.com/progrium/gh-release/...
