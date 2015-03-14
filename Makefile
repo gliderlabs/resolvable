@@ -15,9 +15,7 @@ build:
 	docker save $(NAME):$(VERSION) | gzip -9 > build/$(NAME)_$(VERSION).tgz
 
 test:
-	GOMAXPROCS=4 go test -v \
-		github.com/mgood/resolve \
-		github.com/mgood/resolve/resolver
+	GOMAXPROCS=4 go test -v ./...
 
 release:
 	rm -rf release && mkdir release

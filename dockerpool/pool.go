@@ -2,7 +2,6 @@ package dockerpool
 
 import (
 	"bytes"
-	"log"
 	"net/url"
 
 	dockerapi "github.com/fsouza/go-dockerclient"
@@ -115,11 +114,9 @@ func (p *DockerInDockerPool) clientInit(client *dockerapi.Client) error {
 func (p *DockerInDockerPool) Borrow() (*DockerDaemon, error) {
 	select {
 	case d := <-p.pool:
-		log.Println("borrowed existing")
 		d.KillAllContainers()
 		return d, nil
 	default:
-		log.Println("created new")
 		return newDockerInDockerDaemon(p.client, p.endpoint, p.clientInit)
 	}
 }
