@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"log"
 	"net"
-	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,57 +11,54 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cenkalti/backoff"
+	"github.com/mgood/resolve/dockerpool"
+
 	dockerapi "github.com/fsouza/go-dockerclient"
 )
 
-var GliderlabsAlpineImage []byte
+var useNativeContainers = os.Getenv("DESTROY_NATIVE_CONTAINERS") != ""
+
+var DaemonPool dockerpool.Pool
 
 func TestMain(m *testing.M) {
+	os.Exit(runMain(m))
+}
+
+func runMain(m *testing.M) int {
 	if err := setup(); err != nil {
 		log.Fatal(err)
 	}
+	defer DaemonPool.Close()
 
-	os.Exit(m.Run())
+	return m.Run()
 }
 
+
 func setup() error {
-	rootClient, _, err := clientFromEnv()
+	var pool dockerpool.Pool
+	var err error
+
+	if useNativeContainers {
+		pool, err = dockerpool.NewNativePool("gliderlabs/alpine:latest")
+	} else {
+		pool, err = dockerpool.NewDockerInDockerPool("gliderlabs/alpine:latest")
+	}
+
 	if err != nil {
 		return err
 	}
 
-	err = rootClient.PullImage(dockerapi.PullImageOptions{
-		Repository: "jpetazzo/dind",
-	}, dockerapi.AuthConfiguration{})
-	if err != nil {
-		return err
-	}
-
-	err = rootClient.PullImage(dockerapi.PullImageOptions{
-		Repository: "gliderlabs/alpine:latest",
-	}, dockerapi.AuthConfiguration{})
-	if err != nil {
-		return err
-	}
-
-	var buf bytes.Buffer
-	err = rootClient.ExportImage(dockerapi.ExportImageOptions{
-		Name:         "gliderlabs/alpine:latest",
-		OutputStream: &buf,
-	})
-	if err != nil {
-		return err
-	}
-	GliderlabsAlpineImage = buf.Bytes()
-
+	DaemonPool = pool
 	return nil
 }
 
 func TestStartupShutdown(t *testing.T) {
+	if useNativeContainers {
+		t.Skip("not supported with native containers, cannot shutdown the native Docker daemon")
+	}
 	t.Parallel()
 
-	daemon, err := NewDaemon()
+	daemon, err := dockerpool.NewDockerInDockerDaemon()
 	ok(t, err)
 	defer daemon.Close()
 
@@ -78,9 +73,9 @@ func TestStartupShutdown(t *testing.T) {
 func TestAddContainerBeforeStarted(t *testing.T) {
 	t.Parallel()
 
-	daemon, err := NewDaemon()
+	daemon, err := DaemonPool.Borrow()
 	ok(t, err)
-	defer daemon.Close()
+	defer DaemonPool.Return(daemon)
 
 	containerId, err := daemon.RunSimple("sleep", "30")
 	ok(t, err)
@@ -95,9 +90,9 @@ func TestAddContainerBeforeStarted(t *testing.T) {
 func TestAddRemoveWhileRunning(t *testing.T) {
 	t.Parallel()
 
-	daemon, err := NewDaemon()
+	daemon, err := DaemonPool.Borrow()
 	ok(t, err)
-	defer daemon.Close()
+	defer DaemonPool.Return(daemon)
 
 	dns := RunDebugResolver(daemon.Client)
 
@@ -119,9 +114,9 @@ func TestAddRemoveWhileRunning(t *testing.T) {
 func TestAddUpstreamDefaultPort(t *testing.T) {
 	t.Parallel()
 
-	daemon, err := NewDaemon()
+	daemon, err := DaemonPool.Borrow()
 	ok(t, err)
-	defer daemon.Close()
+	defer DaemonPool.Return(daemon)
 
 	dns := RunDebugResolver(daemon.Client)
 
@@ -157,9 +152,9 @@ func TestAddUpstreamDefaultPort(t *testing.T) {
 func TestAddUpstreamEmptyDomains(t *testing.T) {
 	t.Parallel()
 
-	daemon, err := NewDaemon()
+	daemon, err := DaemonPool.Borrow()
 	ok(t, err)
-	defer daemon.Close()
+	defer DaemonPool.Return(daemon)
 
 	dns := RunDebugResolver(daemon.Client)
 
@@ -185,9 +180,9 @@ func TestAddUpstreamEmptyDomains(t *testing.T) {
 func TestAddUpstreamEmptyPort(t *testing.T) {
 	t.Parallel()
 
-	daemon, err := NewDaemon()
+	daemon, err := DaemonPool.Borrow()
 	ok(t, err)
-	defer daemon.Close()
+	defer DaemonPool.Return(daemon)
 
 	dns := RunDebugResolver(daemon.Client)
 
@@ -218,9 +213,9 @@ func TestAddUpstreamEmptyPort(t *testing.T) {
 func TestAddUpstreamAlternatePort(t *testing.T) {
 	t.Parallel()
 
-	daemon, err := NewDaemon()
+	daemon, err := DaemonPool.Borrow()
 	ok(t, err)
-	defer daemon.Close()
+	defer DaemonPool.Return(daemon)
 
 	dns := RunDebugResolver(daemon.Client)
 
@@ -251,9 +246,9 @@ func TestAddUpstreamAlternatePort(t *testing.T) {
 func TestAddUpstreamInvalidPort(t *testing.T) {
 	t.Parallel()
 
-	daemon, err := NewDaemon()
+	daemon, err := DaemonPool.Borrow()
 	ok(t, err)
-	defer daemon.Close()
+	defer DaemonPool.Return(daemon)
 
 	dns := RunDebugResolver(daemon.Client)
 
@@ -285,9 +280,9 @@ func TestAddUpstreamInvalidPort(t *testing.T) {
 func TestAddUpstreamDomains(t *testing.T) {
 	t.Parallel()
 
-	daemon, err := NewDaemon()
+	daemon, err := DaemonPool.Borrow()
 	ok(t, err)
-	defer daemon.Close()
+	defer DaemonPool.Return(daemon)
 
 	dns := RunDebugResolver(daemon.Client)
 
@@ -333,12 +328,6 @@ func assertNext(tb testing.TB, expected string, ch chan string, timeout time.Dur
 // Helpers
 ////////////////////////////////////////////////////////////////////////////////
 
-type DockerDaemon struct {
-	Client          *dockerapi.Client
-	rootClient      *dockerapi.Client
-	dindContainerId string
-}
-
 // ok fails the test if an err is not nil.
 func ok(tb testing.TB, err error) {
 	if err != nil {
@@ -355,144 +344,6 @@ func equals(tb testing.TB, exp, act interface{}) {
 		fmt.Printf("\033[31m%s:%d:\n\n\texp: %#v\n\n\tgot: %#v\033[39m\n\n", filepath.Base(file), line, exp, act)
 		tb.FailNow()
 	}
-}
-
-func clientFromEnv() (client *dockerapi.Client, endpointUrl *url.URL, err error) {
-	endpoint := getopt("DOCKER_HOST", "unix:///var/run/docker.sock")
-	endpointUrl, err = url.Parse(endpoint)
-	if err != nil {
-		return
-	}
-
-	if os.Getenv("DOCKER_TLS_VERIFY") == "" {
-		client, err = dockerapi.NewClient(endpoint)
-	} else {
-		certPath := os.Getenv("DOCKER_CERT_PATH")
-		client, err = dockerapi.NewTLSClient(endpoint,
-			filepath.Join(certPath, "cert.pem"),
-			filepath.Join(certPath, "key.pem"),
-			filepath.Join(certPath, "ca.pem"),
-		)
-	}
-
-	return
-}
-
-func NewDaemon() (*DockerDaemon, error) {
-	rootClient, endpoint, err := clientFromEnv()
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO share /var/lib/docker across the docker runs, but where should the volume be stored?
-
-	daemon := &DockerDaemon{
-		rootClient: rootClient,
-	}
-	defer func() {
-		// if there is an error, client will not be set, so clean up
-		if daemon.Client == nil {
-			daemon.Close()
-		}
-	}()
-
-	port := dockerapi.Port("4444/tcp")
-
-	daemon.dindContainerId, err = runContainer(rootClient,
-		dockerapi.CreateContainerOptions{
-			Config: &dockerapi.Config{
-				Image:        "jpetazzo/dind",
-				Env:          []string{"PORT=" + port.Port()},
-				ExposedPorts: map[dockerapi.Port]struct{}{port: {}},
-			},
-		}, &dockerapi.HostConfig{
-			Privileged:      true,
-			PublishAllPorts: true,
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	container, err := rootClient.InspectContainer(daemon.dindContainerId)
-	if err != nil {
-		return nil, err
-	}
-
-	var hostAddr, hostPort string
-
-	if endpoint.Scheme == "unix" {
-		hostAddr = container.NetworkSettings.IPAddress
-		hostPort = port.Port()
-	} else {
-		portBinding := container.NetworkSettings.Ports[port][0]
-		hostAddr, _, err = net.SplitHostPort(endpoint.Host)
-		if err != nil {
-			return nil, err
-		}
-		hostPort = portBinding.HostPort
-	}
-
-	dindEndpoint := fmt.Sprintf("tcp://%v:%v", hostAddr, hostPort)
-	client, err := dockerapi.NewClient(dindEndpoint)
-	if err != nil {
-		return nil, err
-	}
-
-	b := backoff.NewExponentialBackOff()
-	// retry a bit faster than the defaults
-	b.InitialInterval = time.Second / 10
-	b.Multiplier = 1.1
-	b.RandomizationFactor = 0.2
-	// don't need to wait a full minute to timeout
-	b.MaxElapsedTime = 30 * time.Second
-
-	loadAlpine := func() error {
-		return client.LoadImage(dockerapi.LoadImageOptions{
-			InputStream: bytes.NewReader(GliderlabsAlpineImage),
-		})
-	}
-	if err = backoff.Retry(loadAlpine, b); err != nil {
-		return nil, err
-	}
-
-	daemon.Client = client
-	return daemon, err
-}
-
-func (d *DockerDaemon) RunSimple(cmd ...string) (string, error) {
-	return d.Run(dockerapi.CreateContainerOptions{
-		Config: &dockerapi.Config{
-			Image: "gliderlabs/alpine",
-			Cmd:   cmd,
-		},
-	}, nil)
-}
-
-func (d *DockerDaemon) Run(createOpts dockerapi.CreateContainerOptions, startConfig *dockerapi.HostConfig) (string, error) {
-	return runContainer(d.Client, createOpts, startConfig)
-}
-
-func (d *DockerDaemon) Close() error {
-	if d.dindContainerId == "" {
-		return nil
-	}
-	return d.rootClient.RemoveContainer(dockerapi.RemoveContainerOptions{
-		ID:            d.dindContainerId,
-		RemoveVolumes: true,
-		Force:         true,
-	})
-}
-
-func runContainer(client *dockerapi.Client, createOpts dockerapi.CreateContainerOptions, startConfig *dockerapi.HostConfig) (string, error) {
-	container, err := client.CreateContainer(createOpts)
-	if err != nil {
-		return "", err
-	}
-
-	err = client.StartContainer(container.ID, startConfig)
-	// return container ID even if there is an error, so caller can clean up container if desired
-	return container.ID, err
 }
 
 type DebugResolver struct {
