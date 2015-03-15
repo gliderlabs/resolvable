@@ -1,3 +1,11 @@
+dependencies:
+  cache_directories:
+    - dnsmasq-2.72
+  pre:
+    - bash ./install-dnsmasq.sh
+
 machine:
+  environment:
+    DESTROY_NATIVE_CONTAINERS: 1
   services:
     - docker
