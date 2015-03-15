@@ -172,16 +172,12 @@ func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, contain
 	for msg := range events {
 		switch msg.Status {
 		case "start":
-			go func() {
-				if err := addContainer(msg.ID); err != nil {
-					log.Printf("error adding container %s: %s\n", msg.ID[:12], err)
-				}
-			}()
+			if err := addContainer(msg.ID); err != nil {
+				log.Printf("error adding container %s: %s\n", msg.ID[:12], err)
+			}
 		case "die":
-			go func() {
-				dns.RemoveHost(msg.ID)
-				dns.RemoveUpstream(msg.ID)
-			}()
+			dns.RemoveHost(msg.ID)
+			dns.RemoveUpstream(msg.ID)
 		}
 	}
 
