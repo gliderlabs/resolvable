@@ -170,15 +170,17 @@ func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, contain
 	defer dns.Close()
 
 	for msg := range events {
-		switch msg.Status {
-		case "start":
-			if err := addContainer(msg.ID); err != nil {
-				log.Printf("error adding container %s: %s\n", msg.ID[:12], err)
+		go func(msg *dockerapi.APIEvents) {
+			switch msg.Status {
+			case "start":
+				if err := addContainer(msg.ID); err != nil {
+					log.Printf("error adding container %s: %s\n", msg.ID[:12], err)
+				}
+			case "die":
+				dns.RemoveHost(msg.ID)
+				dns.RemoveUpstream(msg.ID)
 			}
-		case "die":
-			dns.RemoveHost(msg.ID)
-			dns.RemoveUpstream(msg.ID)
-		}
+		}(msg)
 	}
 
 	return errors.New("docker event loop closed")
