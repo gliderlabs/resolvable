@@ -2,14 +2,12 @@ package resolver
 
 import (
 	"fmt"
-	"io/ioutil"
+	"log"
 	"net"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
+	"strings"
 	"sync"
-	"syscall"
+
+	"github.com/miekg/dns"
 )
 
 type Resolver interface {
@@ -23,107 +21,200 @@ type Resolver interface {
 	Close()
 }
 
-type dnsmasqResolver struct {
-	sync.Mutex
-	Port        int
-	LocalDomain string
-	configDir   string
-	hosts       *EntriesFile
-	upstream    *EntriesFile
-	dnsmasq     *exec.Cmd
-	started     chan struct{}
+type hostsEntry struct {
+	Address net.IP
+	Names   []string
 }
 
-func NewDnsmasqResolver() (*dnsmasqResolver, error) {
-	configDir, err := ioutil.TempDir("", "docker-resolve")
-	if err != nil {
-		return nil, err
-	}
-	hosts := NewEntriesFile(filepath.Join(configDir, "hosts"))
-	upstream := NewEntriesFile(filepath.Join(configDir, "upstream"))
-	return &dnsmasqResolver{
-		Port:      53,
-		configDir: configDir,
-		hosts:     hosts,
-		upstream:  upstream,
-		started:   make(chan struct{}),
+type serversEntry struct {
+	Address net.IP
+	Port    int
+	Domains []string
+}
+
+type dnsResolver struct {
+	hostMutex     sync.RWMutex
+	upstreamMutex sync.RWMutex
+
+	Port     int
+	hosts    map[string]*hostsEntry
+	upstream map[string]*serversEntry
+	server   *dns.Server
+	stopped  chan struct{}
+}
+
+func NewResolver() (*dnsResolver, error) {
+	return &dnsResolver{
+		Port:     53,
+		hosts:    make(map[string]*hostsEntry),
+		upstream: make(map[string]*serversEntry),
+		stopped:  make(chan struct{}),
 	}, nil
 }
 
-func (r *dnsmasqResolver) AddHost(id string, addr net.IP, name string, aliases ...string) error {
-	return r.addTo(r.hosts, id, NewHostsEntry(addr, name, aliases...))
+func (r *dnsResolver) AddHost(id string, addr net.IP, name string, aliases ...string) error {
+	r.hostMutex.Lock()
+	defer r.hostMutex.Unlock()
+
+	r.hosts[id] = &hostsEntry{Address: addr, Names: append([]string{name}, aliases...)}
+	return nil
 }
 
-func (r *dnsmasqResolver) RemoveHost(id string) error {
-	return r.removeFrom(r.hosts, id)
+func (r *dnsResolver) RemoveHost(id string) error {
+	r.hostMutex.Lock()
+	defer r.hostMutex.Unlock()
+
+	delete(r.hosts, id)
+	return nil
 }
 
-func (r *dnsmasqResolver) AddUpstream(id string, addr net.IP, port int, domains ...string) error {
-	return r.addTo(r.upstream, id, NewServersEntry(addr, port, domains...))
+func (r *dnsResolver) AddUpstream(id string, addr net.IP, port int, domains ...string) error {
+	r.upstreamMutex.Lock()
+	defer r.upstreamMutex.Unlock()
+
+	r.upstream[id] = &serversEntry{Address: addr, Port: port, Domains: domains}
+	return nil
 }
 
-func (r *dnsmasqResolver) RemoveUpstream(id string) error {
-	return r.removeFrom(r.upstream, id)
+func (r *dnsResolver) RemoveUpstream(id string) error {
+	r.upstreamMutex.Lock()
+	defer r.upstreamMutex.Unlock()
+
+	delete(r.upstream, id)
+	return nil
 }
 
-func (r *dnsmasqResolver) addTo(entries *EntriesFile, id string, entry fmt.Stringer) error {
-	r.Lock()
-	defer r.Unlock()
+func (r *dnsResolver) Listen() error {
+	addr := fmt.Sprintf(":%d", r.Port)
 
-	if !entries.Add(id, entry) {
-		return nil
+	startupError := make(chan error)
+
+	r.server = &dns.Server{Addr: addr, Net: "udp", Handler: r, NotifyStartedFunc: func() {
+		startupError <- nil
+	}}
+
+	go func() {
+		select {
+		case startupError <- r.run():
+		default:
+		}
+	}()
+
+	return <-startupError
+}
+
+func (r *dnsResolver) run() error {
+	defer close(r.stopped)
+	return r.server.ListenAndServe()
+}
+
+func (r *dnsResolver) Wait() error {
+	<-r.stopped
+	return nil
+}
+
+func (r *dnsResolver) Close() {
+	if r.server != nil {
+		r.server.Shutdown()
 	}
-	return r.reload(entries)
 }
 
-func (r *dnsmasqResolver) removeFrom(entries *EntriesFile, id string) error {
-	r.Lock()
-	defer r.Unlock()
-
-	if !entries.Remove(id) {
-		return nil
+func (r *dnsResolver) ServeDNS(w dns.ResponseWriter, query *dns.Msg) {
+	response, err := r.responseForQuery(query)
+	if err != nil {
+		// FIXME add DNS error response
 	}
-	return r.reload(entries)
+
+	err = w.WriteMsg(response)
+	if err != nil {
+		log.Println("error:", err)
+	}
 }
 
-func (r *dnsmasqResolver) reload(entries *EntriesFile) error {
-	if err := entries.Write(); err != nil {
-		return err
+func (r *dnsResolver) responseForQuery(query *dns.Msg) (*dns.Msg, error) {
+	// TODO multiple queries?
+	name := query.Question[0].Name
+
+	if query.Question[0].Qtype == dns.TypeA {
+		if addrs := r.findHost(name); len(addrs) > 0 {
+			return dnsAddressRecord(query, name, addrs), nil
+		}
 	}
-	if r.dnsmasq == nil {
-		return nil
+
+	// What if RecursionDesired = false?
+	if resp, err := r.findUpstream(name, query); resp != nil || err != nil {
+		return resp, err
 	}
-	return r.dnsmasq.Process.Signal(syscall.SIGHUP)
+
+	return dnsNotFound(query), nil
 }
 
-func (r *dnsmasqResolver) Listen() error {
-	args := []string{
-		"--port", strconv.Itoa(r.Port),
-		"--no-daemon", "--no-hosts",
-		"--addn-hosts", r.hosts.path,
-		"--servers-file", r.upstream.path,
-		"--no-resolv",
-	}
-	if r.LocalDomain != "" {
-		args = append(args, "--local", "/"+r.LocalDomain+"/")
-	}
-	r.dnsmasq = exec.Command("dnsmasq", args...)
-	r.dnsmasq.Stdout = os.Stdout
-	r.dnsmasq.Stderr = os.Stderr
+func (r *dnsResolver) upstreamForHost(name string) (matchedUpstream *serversEntry) {
+	r.upstreamMutex.RLock()
+	defer r.upstreamMutex.RUnlock()
 
-	err := r.dnsmasq.Start()
-	close(r.started)
-	return err
+	matchedDomain := ""
+
+	for _, upstream := range r.upstream {
+		if len(upstream.Domains) == 0 && matchedDomain == "" {
+			matchedUpstream = upstream
+		}
+
+		for _, domain := range upstream.Domains {
+			domain = dns.Fqdn(domain)
+			if len(domain) > len(matchedDomain) && (domain == name || strings.HasSuffix(name, "."+domain)) {
+				matchedDomain = domain
+				matchedUpstream = upstream
+			}
+		}
+	}
+
+	return
 }
 
-func (r *dnsmasqResolver) Wait() error {
-	<-r.started
-	return r.dnsmasq.Wait()
+func (r *dnsResolver) findUpstream(name string, msg *dns.Msg) (*dns.Msg, error) {
+	upstream := r.upstreamForHost(name)
+	if upstream == nil || upstream.Address == nil {
+		return nil, nil
+	}
+
+	c := &dns.Client{Net: "udp"}
+	addr := fmt.Sprintf("%s:%d", upstream.Address.String(), upstream.Port)
+	resp, _, err := c.Exchange(msg, addr)
+	return resp, err
 }
 
-func (r *dnsmasqResolver) Close() {
-	if r.dnsmasq != nil {
-		r.dnsmasq.Process.Kill()
+func (r *dnsResolver) findHost(name string) (addrs []net.IP) {
+	r.hostMutex.RLock()
+	defer r.hostMutex.RUnlock()
+
+	for _, hosts := range r.hosts {
+		for _, hostName := range hosts.Names {
+			if dns.Fqdn(hostName) == name {
+				addrs = append(addrs, hosts.Address)
+			}
+		}
 	}
-	os.RemoveAll(r.configDir)
+
+	return addrs
+}
+
+func dnsAddressRecord(query *dns.Msg, name string, addrs []net.IP) *dns.Msg {
+	resp := new(dns.Msg)
+	resp.SetReply(query)
+	for _, addr := range addrs {
+		rr := new(dns.A)
+		rr.Hdr = dns.RR_Header{Name: name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 0}
+		rr.A = addr
+
+		resp.Answer = append(resp.Answer, rr)
+	}
+	return resp
+}
+
+func dnsNotFound(query *dns.Msg) *dns.Msg {
+	resp := new(dns.Msg)
+	resp.SetReply(query)
+	resp.SetRcode(query, dns.RcodeNameError)
+	return resp
 }

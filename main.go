@@ -218,20 +218,21 @@ func run() error {
 		updateResolvConf("", resolveConf)
 	}()
 
-	dnsmasq, err := resolver.NewDnsmasqResolver()
+	dns, err := resolver.NewResolver()
 	if err != nil {
 		return err
 	}
-	defer dnsmasq.Close()
+	defer dns.Close()
 
-	dnsmasq.LocalDomain = "docker"
+	localDomain := "docker"
+	dns.AddUpstream(localDomain, nil, 0, localDomain)
 
 	go func() {
-		dnsmasq.Wait()
-		exitReason <- errors.New("dnsmasq process exited")
+		dns.Wait()
+		exitReason <- errors.New("dns resolver exited")
 	}()
 	go func() {
-		exitReason <- registerContainers(docker, dnsmasq, dnsmasq.LocalDomain)
+		exitReason <- registerContainers(docker, dns, localDomain)
 	}()
 
 	return <-exitReason

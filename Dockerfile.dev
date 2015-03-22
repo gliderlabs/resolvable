@@ -2,7 +2,7 @@ FROM gliderlabs/alpine:3.1
 ENTRYPOINT ["/bin/resolve"]
 
 ENV GOPATH /go
-RUN apk-install go git mercurial dnsmasq
+RUN apk-install go git mercurial
 COPY . /go/src/github.com/mgood/resolve
 RUN cd /go/src/github.com/mgood/resolve \
 	&& go get \

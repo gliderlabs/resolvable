@@ -6,17 +6,18 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"testing"
 	"time"
 
 	"github.com/tonnerre/golang-dns"
 )
 
-func TestDnsmasqResolver(t *testing.T) {
+func TestResolver(t *testing.T) {
 	hostname := "foobar"
 	address := net.ParseIP("1.2.3.4")
 
-	resolver, err := NewDnsmasqResolver()
+	resolver, err := NewResolver()
 	ok(t, err)
 
 	resolver.AddHost(address.String(), address, hostname)
@@ -28,6 +29,23 @@ func TestDnsmasqResolver(t *testing.T) {
 
 	resolver.RemoveHost(address.String())
 	assertDoesNotResolve(t, hostname, resolver.Port)
+}
+
+func TestMultipleAddresses(t *testing.T) {
+	hostname := "foobar"
+	addr1 := net.ParseIP("1.2.3.4")
+	addr2 := net.ParseIP("5.6.7.8")
+
+	resolver, err := NewResolver()
+	ok(t, err)
+
+	resolver.AddHost(addr1.String(), addr1, hostname)
+	resolver.AddHost(addr2.String(), addr2, hostname)
+
+	ok(t, startResolver(resolver, 5388))
+	defer resolver.Close()
+
+	assertResolvesTo(t, []net.IP{addr1, addr2}, hostname, resolver.Port)
 }
 
 func TestUpstreamResolver(t *testing.T) {
@@ -73,15 +91,42 @@ func TestUpstreamResolverDomains(t *testing.T) {
 	assertResolvesTo(t, []net.IP{shouldAlsoResolve}, "domain.should-also-resolve", resolver.Port)
 }
 
-// queries within the "LocalDomain" should not be forwarded to upstream servers
+func TestUpstreamResolverSubDomains(t *testing.T) {
+	addr := net.ParseIP("1.0.0.1")
+
+	resolver, err := runResolver(5388)
+	ok(t, err)
+	defer resolver.Close()
+
+	upstream1, err := runResolver(5389)
+	ok(t, err)
+	defer upstream1.Close()
+
+	upstream1.AddHost("should-resolve", addr, "name.top")
+
+	upstream2, err := runResolver(5390)
+	ok(t, err)
+	defer upstream2.Close()
+
+	upstream2.AddHost("should-also-resolve", addr, "name.sub.top")
+
+	resolver.AddUpstream("upstream1", net.ParseIP("127.0.0.1"), upstream1.Port, "top")
+	resolver.AddUpstream("upstream2", net.ParseIP("127.0.0.1"), upstream2.Port, "sub.top")
+
+	assertResolvesTo(t, []net.IP{addr}, "name.top", resolver.Port)
+	assertResolvesTo(t, []net.IP{addr}, "name.sub.top", resolver.Port)
+}
+
+// queries within the "local domain" should not be forwarded to upstream servers
 func TestLocalDomain(t *testing.T) {
 	shouldResolve := net.ParseIP("1.0.0.1")
 	shouldNotResolve := net.ParseIP("3.0.0.1")
 
-	resolver, err := NewDnsmasqResolver()
+	resolver, err := NewResolver()
 	ok(t, err)
 
-	resolver.LocalDomain = "docker"
+	// upstream with a "nil" address should not be forwarded
+	resolver.AddUpstream("docker", nil, 0, "docker")
 
 	ok(t, startResolver(resolver, 5388))
 	defer resolver.Close()
@@ -125,7 +170,7 @@ func TestWait(t *testing.T) {
 }
 
 func TestWaitBeforeListen(t *testing.T) {
-	resolver, err := NewDnsmasqResolver()
+	resolver, err := NewResolver()
 	ok(t, err)
 	defer resolver.Close()
 
@@ -160,18 +205,16 @@ func TestWaitBeforeListen(t *testing.T) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-func startResolver(resolver *dnsmasqResolver, port int) error {
+func startResolver(resolver *dnsResolver, port int) error {
 	resolver.Port = port
 	if err := resolver.Listen(); err != nil {
 		return err
 	}
-	// FIXME should wait just until the dnsmasq server indicates that it's started
-	time.Sleep(time.Second)
 	return nil
 }
 
-func runResolver(port int) (*dnsmasqResolver, error) {
-	resolver, err := NewDnsmasqResolver()
+func runResolver(port int) (*dnsResolver, error) {
+	resolver, err := NewResolver()
 	if err == nil {
 		err = startResolver(resolver, port)
 	}
@@ -203,7 +246,16 @@ func lookupHost(host, server string) ([]net.IP, error) {
 func assertResolvesTo(tb testing.TB, expected []net.IP, hostname string, dnsPort int) {
 	addrs, err := lookupHost(hostname, fmt.Sprintf("127.0.0.1:%d", dnsPort))
 	ok(tb, err)
-	equals(tb, expected, addrs)
+	equals(tb, sortIPs(expected), sortIPs(addrs))
+}
+
+func sortIPs(ips []net.IP) []string {
+	vals := make([]string, len(ips))
+	for i, ip := range ips {
+		vals[i] = ip.String()
+	}
+	sort.Strings(vals)
+	return vals
 }
 
 func assertDoesNotResolve(tb testing.TB, hostname string, dnsPort int) {
