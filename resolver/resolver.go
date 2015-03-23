@@ -87,9 +87,20 @@ func (r *dnsResolver) RemoveUpstream(id string) error {
 func (r *dnsResolver) Listen() error {
 	addr := fmt.Sprintf(":%d", r.Port)
 
-	startupError := make(chan error)
+	listenAddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return err
+	}
 
-	r.server = &dns.Server{Addr: addr, Net: "udp", Handler: r, NotifyStartedFunc: func() {
+	conn, err := net.ListenUDP("udp", listenAddr)
+	if err != nil {
+		return err
+	}
+
+	r.Port = conn.LocalAddr().(*net.UDPAddr).Port
+
+	startupError := make(chan error)
+	r.server = &dns.Server{Handler: r, PacketConn: conn, NotifyStartedFunc: func() {
 		startupError <- nil
 	}}
 
@@ -105,7 +116,7 @@ func (r *dnsResolver) Listen() error {
 
 func (r *dnsResolver) run() error {
 	defer close(r.stopped)
-	return r.server.ListenAndServe()
+	return r.server.ActivateAndServe()
 }
 
 func (r *dnsResolver) Wait() error {

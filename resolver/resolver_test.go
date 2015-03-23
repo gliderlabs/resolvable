@@ -22,7 +22,7 @@ func TestResolver(t *testing.T) {
 
 	resolver.AddHost(address.String(), address, hostname)
 
-	ok(t, startResolver(resolver, 5388))
+	ok(t, startResolver(resolver))
 	defer resolver.Close()
 
 	assertResolvesTo(t, []net.IP{address}, hostname, resolver.Port)
@@ -36,14 +36,12 @@ func TestMultipleAddresses(t *testing.T) {
 	addr1 := net.ParseIP("1.2.3.4")
 	addr2 := net.ParseIP("5.6.7.8")
 
-	resolver, err := NewResolver()
+	resolver, err := runResolver()
 	ok(t, err)
+	defer resolver.Close()
 
 	resolver.AddHost(addr1.String(), addr1, hostname)
 	resolver.AddHost(addr2.String(), addr2, hostname)
-
-	ok(t, startResolver(resolver, 5388))
-	defer resolver.Close()
 
 	assertResolvesTo(t, []net.IP{addr1, addr2}, hostname, resolver.Port)
 }
@@ -52,11 +50,11 @@ func TestUpstreamResolver(t *testing.T) {
 	hostname := "foobar"
 	address := net.ParseIP("1.2.3.4")
 
-	resolver, err := runResolver(5388)
+	resolver, err := runResolver()
 	ok(t, err)
 	defer resolver.Close()
 
-	upstream, err := runResolver(5389)
+	upstream, err := runResolver()
 	ok(t, err)
 	defer upstream.Close()
 	upstream.AddHost("foobar", address, hostname)
@@ -73,11 +71,11 @@ func TestUpstreamResolverDomains(t *testing.T) {
 	shouldAlsoResolve := net.ParseIP("2.0.0.1")
 	shouldNotResolve := net.ParseIP("3.0.0.1")
 
-	resolver, err := runResolver(5388)
+	resolver, err := runResolver()
 	ok(t, err)
 	defer resolver.Close()
 
-	upstream, err := runResolver(5389)
+	upstream, err := runResolver()
 	ok(t, err)
 	defer upstream.Close()
 	upstream.AddHost("should-resolve", shouldResolve, "domain.should-resolve")
@@ -94,17 +92,17 @@ func TestUpstreamResolverDomains(t *testing.T) {
 func TestUpstreamResolverSubDomains(t *testing.T) {
 	addr := net.ParseIP("1.0.0.1")
 
-	resolver, err := runResolver(5388)
+	resolver, err := runResolver()
 	ok(t, err)
 	defer resolver.Close()
 
-	upstream1, err := runResolver(5389)
+	upstream1, err := runResolver()
 	ok(t, err)
 	defer upstream1.Close()
 
 	upstream1.AddHost("should-resolve", addr, "name.top")
 
-	upstream2, err := runResolver(5390)
+	upstream2, err := runResolver()
 	ok(t, err)
 	defer upstream2.Close()
 
@@ -128,10 +126,10 @@ func TestLocalDomain(t *testing.T) {
 	// upstream with a "nil" address should not be forwarded
 	resolver.AddUpstream("docker", nil, 0, "docker")
 
-	ok(t, startResolver(resolver, 5388))
+	ok(t, startResolver(resolver))
 	defer resolver.Close()
 
-	upstream, err := runResolver(5389)
+	upstream, err := runResolver()
 	ok(t, err)
 	defer upstream.Close()
 
@@ -144,7 +142,7 @@ func TestLocalDomain(t *testing.T) {
 }
 
 func TestWait(t *testing.T) {
-	resolver, err := runResolver(5388)
+	resolver, err := runResolver()
 	ok(t, err)
 	defer resolver.Close()
 
@@ -186,7 +184,7 @@ func TestWaitBeforeListen(t *testing.T) {
 	case <-time.After(time.Second / 2):
 	}
 
-	ok(t, startResolver(resolver, 5388))
+	ok(t, startResolver(resolver))
 
 	select {
 	case <-done:
@@ -205,18 +203,18 @@ func TestWaitBeforeListen(t *testing.T) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-func startResolver(resolver *dnsResolver, port int) error {
-	resolver.Port = port
+func startResolver(resolver *dnsResolver) error {
+	resolver.Port = 0
 	if err := resolver.Listen(); err != nil {
 		return err
 	}
 	return nil
 }
 
-func runResolver(port int) (*dnsResolver, error) {
+func runResolver() (*dnsResolver, error) {
 	resolver, err := NewResolver()
 	if err == nil {
-		err = startResolver(resolver, port)
+		err = startResolver(resolver)
 	}
 	return resolver, err
 }
