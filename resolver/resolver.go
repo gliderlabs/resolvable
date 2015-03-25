@@ -87,12 +87,12 @@ func (r *dnsResolver) RemoveUpstream(id string) error {
 func (r *dnsResolver) Listen() error {
 	addr := fmt.Sprintf(":%d", r.Port)
 
-	listenAddr, err := net.ResolveUDPAddr("udp", addr)
+	listenAddr, err := net.ResolveUDPAddr("udp4", addr)
 	if err != nil {
 		return err
 	}
 
-	conn, err := net.ListenUDP("udp", listenAddr)
+	conn, err := net.ListenUDP("udp4", listenAddr)
 	if err != nil {
 		return err
 	}
