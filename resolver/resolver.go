@@ -151,6 +151,10 @@ func (r *dnsResolver) responseForQuery(query *dns.Msg) (*dns.Msg, error) {
 		if addrs := r.findHost(name); len(addrs) > 0 {
 			return dnsAddressRecord(query, name, addrs), nil
 		}
+	} else if query.Question[0].Qtype == dns.TypePTR {
+		if hosts := r.findReverse(name); len(hosts) > 0 {
+			return dnsPtrRecord(query, name, hosts), nil
+		}
 	}
 
 	// What if RecursionDesired = false?
@@ -207,8 +211,21 @@ func (r *dnsResolver) findHost(name string) (addrs []net.IP) {
 			}
 		}
 	}
+	return
+}
 
-	return addrs
+func (r *dnsResolver) findReverse(address string) (hosts []string) {
+	r.hostMutex.RLock()
+	defer r.hostMutex.RUnlock()
+
+	address = strings.ToLower(dns.Fqdn(address))
+
+	for _, entry := range r.hosts {
+		if r, _ := dns.ReverseAddr(entry.Address.String()); address == r && len(entry.Names) > 0 {
+			hosts = append(hosts, dns.Fqdn(entry.Names[0]))
+		}
+	}
+	return
 }
 
 func dnsAddressRecord(query *dns.Msg, name string, addrs []net.IP) *dns.Msg {
@@ -218,6 +235,19 @@ func dnsAddressRecord(query *dns.Msg, name string, addrs []net.IP) *dns.Msg {
 		rr := new(dns.A)
 		rr.Hdr = dns.RR_Header{Name: name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 0}
 		rr.A = addr
+
+		resp.Answer = append(resp.Answer, rr)
+	}
+	return resp
+}
+
+func dnsPtrRecord(query *dns.Msg, name string, hosts []string) *dns.Msg {
+	resp := new(dns.Msg)
+	resp.SetReply(query)
+	for _, host := range hosts {
+		rr := new(dns.PTR)
+		rr.Hdr = dns.RR_Header{Name: name, Rrtype: dns.TypePTR, Class: dns.ClassINET, Ttl: 0}
+		rr.Ptr = host
 
 		resp.Answer = append(resp.Answer, rr)
 	}

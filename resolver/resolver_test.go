@@ -141,6 +141,32 @@ func TestLocalDomain(t *testing.T) {
 	assertResolvesTo(t, []net.IP{shouldResolve}, "should-resolve.docker", resolver.Port)
 }
 
+func TestReverseLookup(t *testing.T) {
+	addr := net.ParseIP("1.2.3.4")
+
+	resolver, err := runResolver()
+	ok(t, err)
+	defer resolver.Close()
+
+	resolver.AddHost("foo", addr, "primary.domain", "secondary.domain")
+
+	m := new(dns.Msg)
+	m.SetQuestion("4.3.2.1.in-addr.arpa.", dns.TypePTR)
+
+	c := new(dns.Client)
+	r, _, err := c.Exchange(m, fmt.Sprintf("127.0.0.1:%d", resolver.Port))
+	ok(t, err)
+
+	hosts := make([]string, 0, len(r.Answer))
+	for _, answer := range r.Answer {
+		if record, ok := answer.(*dns.PTR); ok {
+			hosts = append(hosts, record.Ptr)
+		}
+	}
+
+	equals(t, []string{"primary.domain."}, hosts)
+}
+
 func TestWait(t *testing.T) {
 	resolver, err := runResolver()
 	ok(t, err)
