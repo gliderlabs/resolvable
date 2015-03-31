@@ -133,12 +133,13 @@ func (r *dnsResolver) Close() {
 func (r *dnsResolver) ServeDNS(w dns.ResponseWriter, query *dns.Msg) {
 	response, err := r.responseForQuery(query)
 	if err != nil {
-		// FIXME add DNS error response
+		log.Printf("response error: %T %s", err, err)
+		return
 	}
 
 	err = w.WriteMsg(response)
 	if err != nil {
-		log.Println("error:", err)
+		log.Println("write error:", err)
 	}
 }
 
