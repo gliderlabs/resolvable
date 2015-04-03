@@ -1,4 +1,4 @@
-package main // import "github.com/mgood/resolve"
+package main // import "github.com/mgood/resolvable"
 
 import (
 	"errors"
@@ -13,14 +13,14 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/mgood/resolve/resolver"
+	"github.com/mgood/resolvable/resolver"
 
 	dockerapi "github.com/fsouza/go-dockerclient"
 )
 
 var Version string
 
-const RESOLVCONF_COMMENT = "# added by resolve"
+const RESOLVCONF_COMMENT = "# added by resolvable"
 
 var resolvConfPattern = regexp.MustCompile("(?m:^.*" + regexp.QuoteMeta(RESOLVCONF_COMMENT) + ")(?:$|\n)")
 
@@ -243,10 +243,10 @@ func main() {
 		fmt.Println(Version)
 		os.Exit(0)
 	}
-	log.Printf("Starting resolve %s ...", Version)
+	log.Printf("Starting resolvable %s ...", Version)
 
 	err := run()
 	if err != nil {
-		log.Fatal("resolve: ", err)
+		log.Fatal("resolvable: ", err)
 	}
 }

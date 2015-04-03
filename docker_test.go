@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mgood/resolve/dockerpool"
+	"github.com/mgood/resolvable/dockerpool"
 
 	dockerapi "github.com/fsouza/go-dockerclient"
 )
@@ -32,7 +32,6 @@ func runMain(m *testing.M) int {
 
 	return m.Run()
 }
-
 
 func setup() error {
 	var pool dockerpool.Pool

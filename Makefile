@@ -1,4 +1,4 @@
-NAME=resolve
+NAME=resolvable
 VERSION=$(shell cat VERSION)
 
 dev:

@@ -1,9 +1,9 @@
 FROM gliderlabs/alpine:3.1
-ENTRYPOINT ["/bin/resolve"]
+ENTRYPOINT ["/bin/resolvable"]
 
 ENV GOPATH /go
 RUN apk-install go git mercurial
-COPY . /go/src/github.com/mgood/resolve
-RUN cd /go/src/github.com/mgood/resolve \
+COPY . /go/src/github.com/mgood/resolvable
+RUN cd /go/src/github.com/mgood/resolvable \
 	&& go get \
-	&& go build -ldflags "-X main.Version dev" -o /bin/resolve
+	&& go build -ldflags "-X main.Version dev" -o /bin/resolvable
