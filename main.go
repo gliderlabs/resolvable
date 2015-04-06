@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/miekg/dns"
+
 	"github.com/mgood/resolvable/resolver"
 
 	dockerapi "github.com/fsouza/go-dockerclient"
@@ -218,21 +220,35 @@ func run() error {
 		updateResolvConf("", resolveConf)
 	}()
 
-	dns, err := resolver.NewResolver()
+	dnsResolver, err := resolver.NewResolver()
 	if err != nil {
 		return err
 	}
-	defer dns.Close()
+	defer dnsResolver.Close()
 
 	localDomain := "docker"
-	dns.AddUpstream(localDomain, nil, 0, localDomain)
+	dnsResolver.AddUpstream(localDomain, nil, 0, localDomain)
+
+	resolvConfig, err := dns.ClientConfigFromFile("/etc/resolv.conf")
+	if err != nil {
+		return err
+	}
+	resolvConfigPort, err := strconv.Atoi(resolvConfig.Port)
+	if err != nil {
+		return err
+	}
+	for _, server := range resolvConfig.Servers {
+		if server != address {
+			dnsResolver.AddUpstream("resolv.conf:"+server, net.ParseIP(server), resolvConfigPort)
+		}
+	}
 
 	go func() {
-		dns.Wait()
+		dnsResolver.Wait()
 		exitReason <- errors.New("dns resolver exited")
 	}()
 	go func() {
-		exitReason <- registerContainers(docker, dns, localDomain)
+		exitReason <- registerContainers(docker, dnsResolver, localDomain)
 	}()
 
 	return <-exitReason
