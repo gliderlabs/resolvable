@@ -3,12 +3,10 @@ package main // import "github.com/mgood/resolvable"
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
 	"os/signal"
-	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -22,49 +20,11 @@ import (
 
 var Version string
 
-const RESOLVCONF_COMMENT = "# added by resolvable"
-
-var resolvConfPattern = regexp.MustCompile("(?m:^.*" + regexp.QuoteMeta(RESOLVCONF_COMMENT) + ")(?:$|\n)")
-
 func getopt(name, def string) string {
 	if env := os.Getenv(name); env != "" {
 		return env
 	}
 	return def
-}
-
-func updateResolvConf(insert, path string) error {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	orig, err := ioutil.ReadAll(f)
-	if err != nil {
-		return err
-	}
-
-	orig = resolvConfPattern.ReplaceAllLiteral(orig, []byte{})
-
-	if _, err = f.Seek(0, os.SEEK_SET); err != nil {
-		return err
-	}
-
-	if _, err = f.WriteString(insert); err != nil {
-		return err
-	}
-
-	if _, err = f.Write(orig); err != nil {
-		return err
-	}
-
-	// contents may have been shortened, so truncate where we are
-	pos, err := f.Seek(0, os.SEEK_CUR)
-	if err != nil {
-		return err
-	}
-	return f.Truncate(pos)
 }
 
 func ipAddress() (string, error) {
@@ -210,15 +170,10 @@ func run() error {
 	}
 	log.Println("got local address:", address)
 
-	resolveConf := getopt("RESOLV_CONF", "/tmp/resolv.conf")
-	resolveConfEntry := fmt.Sprintf("nameserver %s %s\n", address, RESOLVCONF_COMMENT)
-	if err = updateResolvConf(resolveConfEntry, resolveConf); err != nil {
-		return err
+	for _, conf := range resolver.HostResolverConfigs.All() {
+		conf.StoreAddress(address)
+		defer conf.Clean()
 	}
-	defer func() {
-		log.Println("cleaning up", resolveConf)
-		updateResolvConf("", resolveConf)
-	}()
 
 	dnsResolver, err := resolver.NewResolver()
 	if err != nil {
