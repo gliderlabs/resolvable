@@ -2,9 +2,11 @@ NAME=resolvable
 VERSION=$(shell cat VERSION)
 
 dev:
-	docker build -f Dockerfile.dev -t $(NAME):dev .
-	docker run --rm \
+	@docker history $(NAME):dev &> /dev/null \
+		|| docker build -f Dockerfile.dev -t $(NAME):dev .
+	@docker run --rm \
 		--hostname $(NAME) \
+		-v $(PWD):/go/src/github.com/mgood/resolvable \
 		-v /var/run/docker.sock:/tmp/docker.sock \
 		-v /etc/resolv.conf:/tmp/resolv.conf \
 		$(NAME):dev
