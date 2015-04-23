@@ -1,11 +1,8 @@
-FROM gliderlabs/alpine:3.1
+FROM alpine:3.1
 ENTRYPOINT ["/bin/resolvable"]
 
-COPY . /go/src/github.com/mgood/resolvable
-RUN apk-install -t build-deps go git mercurial \
-	&& cd /go/src/github.com/mgood/resolvable \
-	&& export GOPATH=/go \
-	&& go get \
-	&& go build -ldflags "-X main.Version $(cat VERSION)" -o /bin/resolvable \
-	&& rm -rf /go \
-	&& apk del --purge build-deps
+COPY . /src
+RUN cd /src && ./build.sh "$(cat VERSION)"
+
+ONBUILD COPY ./modules.go /src/modules.go
+ONBUILD RUN cd /src && ./build.sh "$(cat VERSION)-custom"

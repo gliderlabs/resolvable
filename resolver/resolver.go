@@ -136,6 +136,9 @@ func (r *dnsResolver) ServeDNS(w dns.ResponseWriter, query *dns.Msg) {
 		log.Printf("response error: %T %s", err, err)
 		return
 	}
+	if response == nil {
+		return
+	}
 
 	err = w.WriteMsg(response)
 	if err != nil {

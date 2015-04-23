@@ -170,8 +170,11 @@ func run() error {
 	}
 	log.Println("got local address:", address)
 
-	for _, conf := range resolver.HostResolverConfigs.All() {
-		conf.StoreAddress(address)
+	for name, conf := range resolver.HostResolverConfigs.All() {
+		err := conf.StoreAddress(address)
+		if err != nil {
+			log.Printf("[ERROR] error in %s: %s", name, err)
+		}
 		defer conf.Clean()
 	}
 
