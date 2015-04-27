@@ -7,6 +7,7 @@ dev:
 	@docker run --rm \
 		--hostname $(NAME) \
 		-v $(PWD):/go/src/github.com/mgood/resolvable \
+		-v $(PWD)/config:/config \
 		-v /var/run/docker.sock:/tmp/docker.sock \
 		-v /etc/resolv.conf:/tmp/resolv.conf \
 		$(NAME):dev

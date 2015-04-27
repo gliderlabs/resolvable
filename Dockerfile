@@ -1,6 +1,7 @@
 FROM alpine:3.1
 ENTRYPOINT ["/bin/resolvable"]
 
+COPY ./config /config
 COPY . /src
 RUN cd /src && ./build.sh "$(cat VERSION)"
 

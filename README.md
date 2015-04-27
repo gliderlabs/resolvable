@@ -14,6 +14,19 @@ The `docker.sock` is mounted to allow `resolvable` to listen for Docker events a
 
 `resolvable` can insert itself into the host's `/etc/resolv.conf` file by mounting this file to `/tmp/resolv.conf` in the container. When starting, it will insert itself as the first `nameserver` in the file, and remove itself when shutting down.
 
+## Systemd integration
+
+On systems using systemd, `resolvable` can integrate with the systemd DNS configuration. Instead of mounting `/etc/resolv.conf`, mount the systemd configuration path `/run/systemd` and the DBUS socket as follows:
+
+	docker run -d \
+		--hostname resolvable \
+		-v /var/run/docker.sock:/tmp/docker.sock \
+		-v /run/systemd:/tmp/systemd \
+		-v /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket \
+		mgood/resolvable-systemd
+
+`resolvable` will generate a systemd network config, and then use the DBUS socket to reload `systemd-networkd` to regenerate the host's `/etc/resolv.conf`.
+
 ## Container Registration
 
 `resolvable` provides DNS entries `<hostname>` and `<name>.docker` for each container. Containers are automatically registered when they start, and removed when they die.

@@ -1,0 +1,4 @@
+[Match]
+
+[Network]
+DNS = {{.Address}}
