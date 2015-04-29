@@ -62,8 +62,10 @@ func parseContainerEnv(containerEnv []string, prefix string) map[string]string {
 	return parsed
 }
 
-func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, containerDomain string) error {
-	events := make(chan *dockerapi.APIEvents)
+func registerContainers(docker *dockerapi.Client, events chan *dockerapi.APIEvents, dns resolver.Resolver, containerDomain string) error {
+	if events == nil {
+		events = make(chan *dockerapi.APIEvents)
+	}
 	if err := docker.AddEventListener(events); err != nil {
 		return err
 	}
@@ -72,12 +74,40 @@ func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, contain
 		containerDomain = "." + containerDomain
 	}
 
+	getAddress := func(container *dockerapi.Container) (net.IP, error) {
+		for {
+			if container.NetworkSettings.IPAddress != "" {
+				return net.ParseIP(container.NetworkSettings.IPAddress), nil
+			}
+
+			if container.HostConfig.NetworkMode == "host" {
+				// TODO add an option to specify the host's IP to use as a default in this case
+				return nil, errors.New("IP not available with network mode \"host\"")
+			}
+
+			if strings.HasPrefix(container.HostConfig.NetworkMode, "container:") {
+				otherId := container.HostConfig.NetworkMode[len("container:"):]
+				var err error
+				container, err = docker.InspectContainer(otherId)
+				if err != nil {
+					return nil, err
+				}
+				continue
+			}
+
+			return nil, fmt.Errorf("unknown network mode", container.HostConfig.NetworkMode)
+		}
+	}
+
 	addContainer := func(containerId string) error {
 		container, err := docker.InspectContainer(containerId)
 		if err != nil {
 			return err
 		}
-		addr := net.ParseIP(container.NetworkSettings.IPAddress)
+		addr, err := getAddress(container)
+		if err != nil {
+			return err
+		}
 
 		err = dns.AddHost(containerId, addr, container.Config.Hostname, container.Name[1:]+containerDomain)
 		if err != nil {
@@ -122,8 +152,9 @@ func registerContainers(docker *dockerapi.Client, dns resolver.Resolver, contain
 	}
 
 	for _, listing := range containers {
-		// TODO report errors adding containers?
-		addContainer(listing.ID)
+		if err := addContainer(listing.ID); err != nil {
+			log.Printf("error adding container %s: %s\n", listing.ID[:12], err)
+		}
 	}
 
 	if err = dns.Listen(); err != nil {
@@ -206,7 +237,7 @@ func run() error {
 		exitReason <- errors.New("dns resolver exited")
 	}()
 	go func() {
-		exitReason <- registerContainers(docker, dnsResolver, localDomain)
+		exitReason <- registerContainers(docker, nil, dnsResolver, localDomain)
 	}()
 
 	return <-exitReason

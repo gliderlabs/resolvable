@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"testing"
 	"time"
@@ -80,9 +81,10 @@ func TestAddContainerBeforeStarted(t *testing.T) {
 	ok(t, err)
 
 	dns := RunDebugResolver(daemon.Client)
+	defer dns.Cleanup()
 
-	assertNext(t, "add: "+containerId, dns.ch, time.Second)
-	assertNext(t, "add: bridge:docker0", dns.ch, time.Second)
+	assertNextAdd(t, daemon.Client, containerId, dns.ch, time.Second)
+	assertNextMatch(t, "add: bridge:docker0 .*", dns.ch, time.Second)
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 }
 
@@ -94,14 +96,15 @@ func TestAddRemoveWhileRunning(t *testing.T) {
 	defer DaemonPool.Return(daemon)
 
 	dns := RunDebugResolver(daemon.Client)
+	defer dns.Cleanup()
 
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 
 	containerId, err := daemon.RunSimple("sleep", "30")
 	ok(t, err)
 
-	assertNext(t, "add: "+containerId, dns.ch, time.Second)
-	assertNext(t, "add: bridge:docker0", dns.ch, time.Second)
+	assertNextAdd(t, daemon.Client, containerId, dns.ch, time.Second)
+	assertNextMatch(t, "add: bridge:docker0 .*", dns.ch, time.Second)
 
 	ok(t, daemon.Client.KillContainer(dockerapi.KillContainerOptions{
 		ID: containerId,
@@ -118,6 +121,7 @@ func TestAddUpstreamDefaultPort(t *testing.T) {
 	defer DaemonPool.Return(daemon)
 
 	dns := RunDebugResolver(daemon.Client)
+	defer dns.Cleanup()
 
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 
@@ -133,12 +137,12 @@ func TestAddUpstreamDefaultPort(t *testing.T) {
 	container, err := daemon.Client.InspectContainer(containerId)
 	ok(t, err)
 
-	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	assertNextAdd(t, daemon.Client, containerId, dns.ch, time.Second)
 	assertNext(t,
 		fmt.Sprintf("add upstream: %v %v %v [domain]", containerId, container.NetworkSettings.IPAddress, 53),
 		dns.ch, time.Second,
 	)
-	assertNext(t, "add: bridge:docker0", dns.ch, time.Second)
+	assertNextMatch(t, "add: bridge:docker0 .*", dns.ch, time.Second)
 
 	ok(t, daemon.Client.KillContainer(dockerapi.KillContainerOptions{
 		ID: containerId,
@@ -156,6 +160,7 @@ func TestAddUpstreamEmptyDomains(t *testing.T) {
 	defer DaemonPool.Return(daemon)
 
 	dns := RunDebugResolver(daemon.Client)
+	defer dns.Cleanup()
 
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 
@@ -168,7 +173,7 @@ func TestAddUpstreamEmptyDomains(t *testing.T) {
 	}, nil)
 	ok(t, err)
 
-	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	assertNextAdd(t, daemon.Client, containerId, dns.ch, time.Second)
 	select {
 	case msg := <-dns.ch:
 		t.Fatalf("expected no more results, got: %v", msg)
@@ -184,6 +189,7 @@ func TestAddUpstreamEmptyPort(t *testing.T) {
 	defer DaemonPool.Return(daemon)
 
 	dns := RunDebugResolver(daemon.Client)
+	defer dns.Cleanup()
 
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 
@@ -202,7 +208,7 @@ func TestAddUpstreamEmptyPort(t *testing.T) {
 	container, err := daemon.Client.InspectContainer(containerId)
 	ok(t, err)
 
-	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	assertNextAdd(t, daemon.Client, containerId, dns.ch, time.Second)
 	assertNext(t,
 		fmt.Sprintf("add upstream: %v %v %v [domain]", containerId, container.NetworkSettings.IPAddress, 53),
 		dns.ch, time.Second,
@@ -217,6 +223,7 @@ func TestAddUpstreamAlternatePort(t *testing.T) {
 	defer DaemonPool.Return(daemon)
 
 	dns := RunDebugResolver(daemon.Client)
+	defer dns.Cleanup()
 
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 
@@ -235,7 +242,7 @@ func TestAddUpstreamAlternatePort(t *testing.T) {
 	container, err := daemon.Client.InspectContainer(containerId)
 	ok(t, err)
 
-	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	assertNextAdd(t, daemon.Client, containerId, dns.ch, time.Second)
 	assertNext(t,
 		fmt.Sprintf("add upstream: %v %v %v [domain]", containerId, container.NetworkSettings.IPAddress, 5353),
 		dns.ch, time.Second,
@@ -250,6 +257,7 @@ func TestAddUpstreamInvalidPort(t *testing.T) {
 	defer DaemonPool.Return(daemon)
 
 	dns := RunDebugResolver(daemon.Client)
+	defer dns.Cleanup()
 
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 
@@ -265,7 +273,7 @@ func TestAddUpstreamInvalidPort(t *testing.T) {
 	}, nil)
 	ok(t, err)
 
-	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	assertNextAdd(t, daemon.Client, containerId, dns.ch, time.Second)
 	// XXX should it still attempt to add the bridge if there is another error?
 	// assertNext(t, "add: bridge:docker0", dns.ch, time.Second)
 
@@ -284,6 +292,7 @@ func TestAddUpstreamDomains(t *testing.T) {
 	defer DaemonPool.Return(daemon)
 
 	dns := RunDebugResolver(daemon.Client)
+	defer dns.Cleanup()
 
 	assertNext(t, "listen", dns.ch, 10*time.Second)
 
@@ -302,20 +311,156 @@ func TestAddUpstreamDomains(t *testing.T) {
 	container, err := daemon.Client.InspectContainer(containerId)
 	ok(t, err)
 
-	assertNext(t, "add: "+containerId, dns.ch, time.Second)
+	assertNextAdd(t, daemon.Client, containerId, dns.ch, time.Second)
 	assertNext(t,
 		fmt.Sprintf("add upstream: %v %v %v [domain another.domain]", containerId, container.NetworkSettings.IPAddress, 5353),
 		dns.ch, time.Second,
 	)
 }
 
-func assertNext(tb testing.TB, expected string, ch chan string, timeout time.Duration) {
+func TestAddNetHostMode(t *testing.T) {
+	t.Parallel()
+
+	daemon, err := DaemonPool.Borrow()
+	ok(t, err)
+	defer DaemonPool.Return(daemon)
+
+	dns := RunDebugResolver(daemon.Client)
+	defer dns.Cleanup()
+
+	assertNext(t, "listen", dns.ch, 10*time.Second)
+
+	containerId, err := daemon.Run(dockerapi.CreateContainerOptions{
+		Config: &dockerapi.Config{
+			Image: "gliderlabs/alpine",
+			Cmd:   []string{"sleep", "30"},
+		},
+		HostConfig: &dockerapi.HostConfig{
+			NetworkMode: "host",
+		},
+	}, nil)
+	ok(t, err)
+
 	select {
-	case actual := <-ch:
-		equals(tb, expected, actual)
+	case msg := <-dns.ch:
+		t.Fatalf("expected no more results, got: %v", msg)
+	case <-time.After(time.Second):
+	}
+
+	ok(t, daemon.Client.KillContainer(dockerapi.KillContainerOptions{
+		ID: containerId,
+	}))
+
+	assertNext(t, "remove: "+containerId, dns.ch, time.Second)
+}
+
+func TestAddNetContainerMode(t *testing.T) {
+	t.Parallel()
+
+	daemon, err := DaemonPool.Borrow()
+	ok(t, err)
+	defer DaemonPool.Return(daemon)
+
+	dns := RunDebugResolver(daemon.Client)
+	defer dns.Cleanup()
+
+	assertNext(t, "listen", dns.ch, 10*time.Second)
+
+	containerId1, err := daemon.RunSimple("sleep", "30")
+	ok(t, err)
+
+	addr, err := containerAddress(daemon.Client, containerId1)
+	assertNext(t, fmt.Sprintf("add: %v %v", containerId1, addr), dns.ch, time.Second)
+	assertNextMatch(t, "add: bridge:docker0 .*", dns.ch, time.Second)
+
+	// reference container by id
+	containerId2, err := daemon.Run(dockerapi.CreateContainerOptions{
+		Config: &dockerapi.Config{
+			Image: "gliderlabs/alpine",
+			Cmd:   []string{"sleep", "30"},
+		},
+		HostConfig: &dockerapi.HostConfig{
+			NetworkMode: "container:" + containerId1,
+		},
+	}, nil)
+
+	assertNext(t, fmt.Sprintf("add: %v %v", containerId2, addr), dns.ch, time.Second)
+
+	container2, err := daemon.Client.InspectContainer(containerId2)
+	ok(t, err)
+
+	// recursive reference
+	// reference via container name
+	containerId3, err := daemon.Run(dockerapi.CreateContainerOptions{
+		Config: &dockerapi.Config{
+			Image: "gliderlabs/alpine",
+			Cmd:   []string{"sleep", "30"},
+		},
+		HostConfig: &dockerapi.HostConfig{
+			NetworkMode: "container:" + container2.Name,
+		},
+	}, nil)
+
+	assertNext(t, fmt.Sprintf("add: %v %v", containerId3, addr), dns.ch, time.Second)
+
+	ok(t, daemon.Client.KillContainer(dockerapi.KillContainerOptions{
+		ID: containerId1,
+	}))
+	ok(t, daemon.Client.KillContainer(dockerapi.KillContainerOptions{
+		ID: containerId2,
+	}))
+	ok(t, daemon.Client.KillContainer(dockerapi.KillContainerOptions{
+		ID: containerId3,
+	}))
+
+	assertNext(t, "remove: "+containerId1, dns.ch, time.Second)
+	assertNext(t, "remove: "+containerId2, dns.ch, time.Second)
+	assertNext(t, "remove: "+containerId3, dns.ch, time.Second)
+}
+
+func containerAddress(client *dockerapi.Client, containerId string) (string, error) {
+	container, err := client.InspectContainer(containerId)
+	if err != nil {
+		return "", err
+	}
+	return container.NetworkSettings.IPAddress, nil
+}
+
+func assertNextAdd(tb testing.TB, client *dockerapi.Client, containerId string, ch chan string, timeout time.Duration) {
+	addr, err := containerAddress(client, containerId)
+	ok(tb, err)
+
+	assertNextMatch(tb, regexp.QuoteMeta(fmt.Sprintf("add: %v %v", containerId, addr)), ch, time.Second)
+}
+
+func assertNext(tb testing.TB, exp string, ch chan string, timeout time.Duration) {
+	select {
+	case act := <-ch:
+		equals(tb, exp, act)
 	case <-time.After(timeout):
 		_, file, line, _ := runtime.Caller(1)
-		fmt.Printf("\033[31m%s:%d: timed out after %v, exp: %s\033[39m\n\n", filepath.Base(file), line, timeout, expected)
+		fmt.Printf("\033[31m%s:%d: timed out after %v, exp: %s\033[39m\n\n", filepath.Base(file), line, timeout, exp)
+		tb.FailNow()
+	}
+}
+
+func assertNextMatch(tb testing.TB, exp string, ch chan string, timeout time.Duration) {
+	select {
+	case act := <-ch:
+		matches, err := regexp.MatchString("^"+exp+"$", act)
+		ok(tb, err)
+
+		if matches {
+			return
+		}
+
+		_, file, line, _ := runtime.Caller(1)
+		fmt.Printf("\033[31m%s:%d:\n\n\texp: %#v\n\n\tgot: %#v\033[39m\n\n", filepath.Base(file), line, exp, act)
+		tb.FailNow()
+
+	case <-time.After(timeout):
+		_, file, line, _ := runtime.Caller(1)
+		fmt.Printf("\033[31m%s:%d: timed out after %v, exp: %s\033[39m\n\n", filepath.Base(file), line, timeout, exp)
 		tb.FailNow()
 	}
 }
@@ -346,18 +491,25 @@ func equals(tb testing.TB, exp, act interface{}) {
 }
 
 type DebugResolver struct {
-	ch chan string
+	ch     chan string
+	client *dockerapi.Client
+	events chan *dockerapi.APIEvents
 }
 
 func RunDebugResolver(client *dockerapi.Client) *DebugResolver {
-	dns := &DebugResolver{make(chan string)}
-	go registerContainers(client, dns, "docker")
+	dns := &DebugResolver{make(chan string), client, make(chan *dockerapi.APIEvents)}
+	go registerContainers(client, dns.events, dns, "docker")
 	return dns
+}
+
+func (r *DebugResolver) Cleanup() {
+	r.client.RemoveEventListener(r.events)
+	close(r.events)
 }
 
 func (r *DebugResolver) AddHost(id string, addr net.IP, name string, aliases ...string) error {
 	// r.ch <- fmt.Sprintf("add: %v %v %v %v", id, addr, name, aliases)
-	r.ch <- fmt.Sprintf("add: %v", id)
+	r.ch <- fmt.Sprintf("add: %v %v", id, addr)
 	return nil
 }
 
