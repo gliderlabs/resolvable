@@ -23,7 +23,7 @@ On systems using systemd, `resolvable` can integrate with the systemd DNS config
 		-v /var/run/docker.sock:/tmp/docker.sock \
 		-v /run/systemd:/tmp/systemd \
 		-v /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket \
-		mgood/resolvable-systemd
+		mgood/resolvable
 
 `resolvable` will generate a systemd network config, and then use the DBUS socket to reload `systemd-networkd` to regenerate the host's `/etc/resolv.conf`.
 
