@@ -9,6 +9,7 @@ import (
 
 	"github.com/mgood/resolvable/resolver"
 
+	"github.com/coreos/go-systemd/daemon"
 	"github.com/coreos/go-systemd/dbus"
 )
 
@@ -92,10 +93,13 @@ func (r *SystemdConfig) StoreAddress(address string) error {
 		}
 	}
 
+	daemon.SdNotify("READY=1")
 	return nil
 }
 
 func (r *SystemdConfig) Clean() {
+	daemon.SdNotify("STOPPING=1")
+
 	for service, filenames := range r.written {
 		log.Printf("systemd: %s: removing configs...", service)
 		for _, filename := range filenames {

@@ -187,7 +187,8 @@ func run() error {
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 		sig := <-c
-		exitReason <- errors.New(fmt.Sprint("terminated by signal ", sig))
+		log.Println("exit requested by signal:", sig)
+		exitReason <- nil
 	}()
 
 	docker, err := dockerapi.NewClient(getopt("DOCKER_HOST", "unix:///tmp/docker.sock"))
