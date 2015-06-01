@@ -62,7 +62,11 @@ func parseContainerEnv(containerEnv []string, prefix string) map[string]string {
 	return parsed
 }
 
-func registerContainers(docker *dockerapi.Client, events chan *dockerapi.APIEvents, dns resolver.Resolver, containerDomain string) error {
+func registerContainers(docker *dockerapi.Client, events chan *dockerapi.APIEvents, dns resolver.Resolver, containerDomain string, hostIP net.IP) error {
+	// TODO add an options struct instead of passing all as parameters
+	// though passing the events channel from an options struct was triggering
+	// data race warnings within AddEventListener, so needs more investigation
+
 	if events == nil {
 		events = make(chan *dockerapi.APIEvents)
 	}
@@ -81,8 +85,11 @@ func registerContainers(docker *dockerapi.Client, events chan *dockerapi.APIEven
 			}
 
 			if container.HostConfig.NetworkMode == "host" {
-				// TODO add an option to specify the host's IP to use as a default in this case
-				return nil, errors.New("IP not available with network mode \"host\"")
+				if hostIP == nil {
+					return nil, errors.New("IP not available with network mode \"host\"")
+				} else {
+					return hostIP, nil
+				}
 			}
 
 			if strings.HasPrefix(container.HostConfig.NetworkMode, "container:") {
@@ -210,6 +217,12 @@ func run() error {
 		defer conf.Clean()
 	}
 
+	var hostIP net.IP
+	if envHostIP := os.Getenv("HOST_IP"); envHostIP != "" {
+		hostIP = net.ParseIP(envHostIP)
+		log.Println("using address for --net=host:", hostIP)
+	}
+
 	dnsResolver, err := resolver.NewResolver()
 	if err != nil {
 		return err
@@ -238,7 +251,7 @@ func run() error {
 		exitReason <- errors.New("dns resolver exited")
 	}()
 	go func() {
-		exitReason <- registerContainers(docker, nil, dnsResolver, localDomain)
+		exitReason <- registerContainers(docker, nil, dnsResolver, localDomain, hostIP)
 	}()
 
 	return <-exitReason

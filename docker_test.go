@@ -318,7 +318,7 @@ func TestAddUpstreamDomains(t *testing.T) {
 	)
 }
 
-func TestAddNetHostMode(t *testing.T) {
+func TestAddNetHostMode_IgnoredByDefault(t *testing.T) {
 	t.Parallel()
 
 	daemon, err := DaemonPool.Borrow()
@@ -346,6 +346,42 @@ func TestAddNetHostMode(t *testing.T) {
 		t.Fatalf("expected no more results, got: %v", msg)
 	case <-time.After(time.Second):
 	}
+
+	ok(t, daemon.Client.KillContainer(dockerapi.KillContainerOptions{
+		ID: containerId,
+	}))
+
+	assertNext(t, "remove: "+containerId, dns.ch, time.Second)
+}
+
+func TestAddNetHostMode_HostIPSet(t *testing.T) {
+	t.Parallel()
+
+	daemon, err := DaemonPool.Borrow()
+	ok(t, err)
+	defer DaemonPool.Return(daemon)
+
+	hostIP := net.ParseIP("192.168.42.42")
+
+	dns := NewDebugResolver(daemon.Client)
+	dns.hostIP = hostIP
+	go dns.Run()
+	defer dns.Cleanup()
+
+	assertNext(t, "listen", dns.ch, 10*time.Second)
+
+	containerId, err := daemon.Run(dockerapi.CreateContainerOptions{
+		Config: &dockerapi.Config{
+			Image: "gliderlabs/alpine",
+			Cmd:   []string{"sleep", "30"},
+		},
+		HostConfig: &dockerapi.HostConfig{
+			NetworkMode: "host",
+		},
+	}, nil)
+	ok(t, err)
+
+	assertNext(t, fmt.Sprintf("add: %v 192.168.42.42", containerId), dns.ch, time.Second)
 
 	ok(t, daemon.Client.KillContainer(dockerapi.KillContainerOptions{
 		ID: containerId,
@@ -494,12 +530,22 @@ type DebugResolver struct {
 	ch     chan string
 	client *dockerapi.Client
 	events chan *dockerapi.APIEvents
+	hostIP net.IP
 }
 
 func RunDebugResolver(client *dockerapi.Client) *DebugResolver {
-	dns := &DebugResolver{make(chan string), client, make(chan *dockerapi.APIEvents)}
-	go registerContainers(client, dns.events, dns, "docker")
+	dns := NewDebugResolver(client)
+	go dns.Run()
 	return dns
+}
+
+func NewDebugResolver(client *dockerapi.Client) *DebugResolver {
+	events := make(chan *dockerapi.APIEvents)
+	return &DebugResolver{make(chan string), client, events, nil}
+}
+
+func (r *DebugResolver) Run() {
+	registerContainers(r.client, r.events, r, "docker", r.hostIP)
 }
 
 func (r *DebugResolver) Cleanup() {
