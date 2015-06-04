@@ -3,8 +3,10 @@ package resolver
 import (
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"regexp"
+	"strings"
 )
 
 const RESOLVCONF_COMMENT = "# added by resolvable"
@@ -37,6 +39,8 @@ func getopt(name, def string) string {
 }
 
 func updateResolvConf(insert, path string) error {
+	log.Println("updating resolv.conf:", path)
+
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return err
@@ -58,8 +62,16 @@ func updateResolvConf(insert, path string) error {
 		return err
 	}
 
-	if _, err = f.Write(orig); err != nil {
-		return err
+	lines := strings.Split(strings.Trim(string(orig), "\n"), "\n")
+	for _, line := range lines {
+		if insert == "" {
+			line = strings.TrimLeft(line, "# ")
+		} else {
+			line = "# " + line
+		}
+		if _, err = f.WriteString(line + "\n"); err != nil {
+			return err
+		}
 	}
 
 	// contents may have been shortened, so truncate where we are
