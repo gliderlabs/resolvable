@@ -1,4 +1,4 @@
-package main // import "github.com/mgood/resolvable"
+package main
 
 import (
 	"errors"
@@ -13,7 +13,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"github.com/mgood/resolvable/resolver"
+	"github.com/gliderlabs/resolvable/resolver"
 
 	dockerapi "github.com/fsouza/go-dockerclient"
 )

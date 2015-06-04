@@ -1,6 +1,6 @@
 package main
 
 import (
-	_ "github.com/mgood/resolvable/resolver"
-	_ "github.com/mgood/resolvable/systemd"
+	_ "github.com/gliderlabs/resolvable/resolver"
+	_ "github.com/gliderlabs/resolvable/systemd"
 )
