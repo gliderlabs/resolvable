@@ -61,3 +61,5 @@ To run an example `consul` container, supporting DNS queries for the `.consul` d
 `resolvable` also provides a DNS entry for the Docker bridge interface address, usually `docker0`. This can be used to communicate with services with a known port bound to the Docker bridge.
 
 See this article on [Docker network configuration](https://docs.docker.com/articles/networking/) for additional details on the Docker bridge interface.
+
+<img src="https://ga-beacon.appspot.com/UA-58928488-2/resolvable/readme?pixel" />
