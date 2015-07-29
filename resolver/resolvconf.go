@@ -62,14 +62,18 @@ func updateResolvConf(insert, path string) error {
 		return err
 	}
 
-	lines := strings.Split(strings.Trim(string(orig), "\n"), "\n")
+	lines := strings.SplitAfter(string(orig), "\n")
 	for _, line := range lines {
+		// if file ends in a newline, skip empty string from splitting
+		if line == "" {
+			continue
+		}
 		if insert == "" {
 			line = strings.TrimLeft(line, "# ")
 		} else {
 			line = "# " + line
 		}
-		if _, err = f.WriteString(line + "\n"); err != nil {
+		if _, err = f.WriteString(line); err != nil {
 			return err
 		}
 	}

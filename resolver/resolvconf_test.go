@@ -4,6 +4,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -32,7 +33,15 @@ func checkInsertLine(t *testing.T, path, line, orig string) {
 		t.Fatal("could not insert line:", err)
 	}
 
-	assertFileContains(t, path, line+"\n"+orig)
+	lines := strings.SplitAfter(orig, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = "# " + line
+		}
+	}
+	commented := strings.Join(lines, "")
+
+	assertFileContains(t, path, line+"\n"+commented)
 }
 
 func TestInsertLineNewFile(t *testing.T) {
