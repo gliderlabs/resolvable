@@ -130,6 +130,15 @@ func (r *dnsResolver) Close() {
 	}
 }
 
+func isUDP(w dns.ResponseWriter) bool {
+	return strings.HasPrefix(w.RemoteAddr().Network(), "udp")
+}
+
+func truncate(m *dns.Msg, udp bool) *dns.Msg {
+	m.Truncated = udp && m.Len() > dns.MinMsgSize
+	return m
+}
+
 func (r *dnsResolver) ServeDNS(w dns.ResponseWriter, query *dns.Msg) {
 	response, err := r.responseForQuery(query)
 	if err != nil {
@@ -140,7 +149,9 @@ func (r *dnsResolver) ServeDNS(w dns.ResponseWriter, query *dns.Msg) {
 		return
 	}
 
-	err = w.WriteMsg(response)
+	response.Compress = true
+
+	err = w.WriteMsg(truncate(response, isUDP(w)))
 	if err != nil {
 		log.Println("write error:", err)
 	}
