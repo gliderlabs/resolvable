@@ -7,6 +7,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/gliderlabs/resolvable/upstart"
 )
 
 const RESOLVCONF_COMMENT = "# added by resolvable"
@@ -83,5 +85,39 @@ func updateResolvConf(insert, path string) error {
 	if err != nil {
 		return err
 	}
+
+	err2 := reload("resolvconf")
+	if err2 != nil {
+		return err2
+	}
+
 	return f.Truncate(pos)
+}
+
+func reload(name string) error {
+	upstartDbusPath := getopt("UPSTART_DBUS_PATH", "/var/run/dbus/system_bus_socket")
+	if _, err := os.Stat(upstartDbusPath); err != nil {
+		log.Printf("upstart: disabled, cannot read %s: %s", upstartDbusPath, err)
+		return nil
+	}
+
+	log.Printf("upstart: %s: starting reload...", name)
+
+	conn, err := upstart.Dial()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Failed to connect to session bus:", err)
+		os.Exit(1)
+	}
+
+	j, err := conn.Job(name)
+	if err != nil {
+		return err
+	}
+
+	err2 := j.Restart()
+	if err2 != nil {
+		return err2
+	}
+
+	return nil
 }
