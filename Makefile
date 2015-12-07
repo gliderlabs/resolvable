@@ -20,7 +20,7 @@ devupstart:
 		-v /var/run/docker.sock:/tmp/docker.sock \
 		-v /etc/resolvconf/resolv.conf.d/head:/tmp/resolv.conf \
 		-v /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket \
-		$(NAME):dev /bin/ash
+		$(NAME):dev
 
 build:
 	mkdir -p build

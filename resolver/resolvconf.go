@@ -84,14 +84,23 @@ func updateResolvConf(insert, path string) error {
 	pos, err := f.Seek(0, os.SEEK_CUR)
 	if err != nil {
 		return err
-	} else {
-		reload("resolvconf")
+	}
+
+	err2 := reload("resolvconf")
+	if err2 != nil {
+		return err2
 	}
 
 	return f.Truncate(pos)
 }
 
 func reload(name string) error {
+	upstartDbusPath := getopt("UPSTART_DBUS_PATH", "/var/run/dbus/system_bus_socket")
+	if _, err := os.Stat(upstartDbusPath); err != nil {
+		log.Printf("upstart: disabled, cannot read %s: %s", upstartDbusPath, err)
+		return nil
+	}
+
 	log.Printf("upstart: %s: starting reload...", name)
 
 	conn, err := upstart.Dial()
