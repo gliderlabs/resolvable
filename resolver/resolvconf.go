@@ -7,6 +7,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/gliderlabs/resolvable/upstart"
 )
 
 const RESOLVCONF_COMMENT = "# added by resolvable"
@@ -82,6 +84,31 @@ func updateResolvConf(insert, path string) error {
 	pos, err := f.Seek(0, os.SEEK_CUR)
 	if err != nil {
 		return err
+	} else {
+		reload("resolvconf")
 	}
+
 	return f.Truncate(pos)
+}
+
+func reload(name string) error {
+	log.Printf("upstart: %s: starting reload...", name)
+
+	conn, err := upstart.Dial()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Failed to connect to session bus:", err)
+		os.Exit(1)
+	}
+
+	j, err := conn.Job(name)
+	if err != nil {
+		return err
+	}
+
+	err2 := j.Restart()
+	if err2 != nil {
+		return err2
+	}
+
+	return nil
 }

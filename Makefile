@@ -2,15 +2,25 @@ NAME=resolvable
 VERSION=$(shell cat VERSION)
 
 dev:
-	@docker history $(NAME):dev &> /dev/null \
-		|| docker build -f Dockerfile.dev -t $(NAME):dev .
+	#@docker history $(NAME):dev &> /dev/null \
+	#	|| docker build -f Dockerfile.dev -t $(NAME):dev .
+	docker build -f Dockerfile.dev -t $(NAME):dev .
 	@docker run --rm \
 		--hostname $(NAME) \
-		-v $(PWD):/go/src/github.com/gliderlabs/resolvable \
-		-v $(PWD)/config:/config \
 		-v /var/run/docker.sock:/tmp/docker.sock \
-		-v /etc/resolv.conf:/tmp/resolv.conf \
+		-v /etc/resolvconf/resolv.conf.d/head:/tmp/resolv.conf \
+		-v /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket \
 		$(NAME):dev
+
+devupstart:
+	docker build -f Dockerfile.dev -t $(NAME):dev .
+	@docker run --rm -it \
+		--hostname $(NAME) \
+		--privileged \
+		-v /var/run/docker.sock:/tmp/docker.sock \
+		-v /etc/resolvconf/resolv.conf.d/head:/tmp/resolv.conf \
+		-v /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket \
+		$(NAME):dev /bin/ash
 
 build:
 	mkdir -p build

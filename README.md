@@ -27,6 +27,15 @@ On systems using systemd, `resolvable` can integrate with the systemd DNS config
 
 `resolvable` will generate a systemd network config, and then use the DBUS socket to reload `systemd-networkd` to regenerate the host's `/etc/resolv.conf`.
 
+## Upstart integration
+
+	docker run -d \
+		--hostname resolvable \
+		-v /var/run/docker.sock:/tmp/docker.sock \
+    -v /etc/resolvconf/resolv.conf.d/head:/tmp/resolv.conf \
+		-v /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket \
+		mgood/resolvable
+
 ## Container Registration
 
 `resolvable` provides DNS entries `<hostname>` and `<name>.docker` for each container. Containers are automatically registered when they start, and removed when they die.
