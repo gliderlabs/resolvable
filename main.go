@@ -229,7 +229,7 @@ func run() error {
 	}
 	defer dnsResolver.Close()
 
-	localDomain := "docker"
+	localDomain := getopt("LOCAL_DOMAIN", "docker")
 	dnsResolver.AddUpstream(localDomain, nil, 0, localDomain)
 
 	resolvConfig, err := dns.ClientConfigFromFile("/etc/resolv.conf")
