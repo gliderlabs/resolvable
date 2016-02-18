@@ -1,6 +1,5 @@
 #!/bin/sh
 set -e
-apk add --update -t build-deps go git mercurial
 mkdir -p /go/src/github.com/gliderlabs
 cp -r /src /go/src/github.com/gliderlabs/resolvable
 cd /go/src/github.com/gliderlabs/resolvable
