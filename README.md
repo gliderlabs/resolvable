@@ -38,6 +38,24 @@ For example, the following container would be available via DNS as `myhost` and 
 		--name myname \
 		mycontainer
 
+## Custom Domain name
+
+Custom domain name can be used by defining the `LOCAL_DOMAIN` env variable:
+
+	docker run -d \
+		--hostname resolvable \
+        -e LOCAL_DOMAIN=example.com \
+		-v /var/run/docker.sock:/tmp/docker.sock \
+		-v /etc/resolv.conf:/tmp/resolv.conf \
+		mgood/resolvable
+
+With this change, the following container would be available via DNS as `myhost` and `myname.example.com`:
+
+	docker run -d \
+		--hostname myhost \
+		--name myname \
+		mycontainer
+
 ## DNS Forwarding
 
 `resolvable` also supports forwarding DNS queries to other containers providing DNS servers. This integrates well with tools like Consul or SkyDNS that offer a DNS endpoint for service discovery.
