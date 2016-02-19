@@ -63,3 +63,41 @@ To run an example `consul` container, supporting DNS queries for the `.consul` d
 See this article on [Docker network configuration](https://docs.docker.com/articles/networking/) for additional details on the Docker bridge interface.
 
 <img src="https://ga-beacon.appspot.com/UA-58928488-2/resolvable/readme?pixel" />
+
+## Reverse DNS
+
+Pointer records (PTR) are used to map an IP address to a hostname. Resolvable supports PTR records, and they are reversing to the container’s fully qualified hostname.
+Once you have started resolvable:
+
+    $ docker run -it --hostname=myhost.example.com  gliderlabs/alpine:3.3 sh
+    # apk add -U bind-tools
+
+    # dig +short myhost.example.com
+    172.17.0.3
+
+    # dig +short -x 172.17.0.3
+    myhost.example.com.
+
+
+## FQDN and docker-compose
+
+Please note that you can specify fqdn names with docker compose 2 ways:
+
+
+`hostname` can include the full domainname:
+```
+web:
+    image: nginx
+    hostname: myweb.example.com
+```
+
+Or define separate `hostname` and `domainname`:
+
+```
+web:
+    image: nginx
+    hostname: myweb
+    domainname: example.com
+```
+
+
