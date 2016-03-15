@@ -101,6 +101,12 @@ func registerContainers(docker *dockerapi.Client, events chan *dockerapi.APIEven
 				}
 				continue
 			}
+			for key, value := range container.NetworkSettings.Networks {
+                fmt.Println("Network-Name:", key)
+					if value.IPAddress != "" {
+						return net.ParseIP(value.IPAddress), nil
+					}
+            }
 
 			return nil, fmt.Errorf("unknown network mode", container.HostConfig.NetworkMode)
 		}
@@ -229,7 +235,7 @@ func run() error {
 	}
 	defer dnsResolver.Close()
 
-	localDomain := "docker"
+	localDomain := "internal"
 	dnsResolver.AddUpstream(localDomain, nil, 0, localDomain)
 
 	resolvConfig, err := dns.ClientConfigFromFile("/etc/resolv.conf")
