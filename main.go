@@ -102,8 +102,8 @@ func registerContainers(docker *dockerapi.Client, events chan *dockerapi.APIEven
 				continue
 			}
 			for key, value := range container.NetworkSettings.Networks {
-                fmt.Println("Network-Name:", key)
 					if value.IPAddress != "" {
+		                log.Println("Found Container with IP: ", value.IPAddress, "from Network: ", key)
 						return net.ParseIP(value.IPAddress), nil
 					}
             }
