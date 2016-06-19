@@ -2,6 +2,8 @@
 
 A simple DNS server to resolve names of local Docker containers.
 
+`Added by Schinti95:` IP Address lookup when using docker networks.
+
 `resolvable` is intended to run in a Docker container:
 
 	docker run -d \
